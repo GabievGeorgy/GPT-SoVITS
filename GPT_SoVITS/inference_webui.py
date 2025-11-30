@@ -289,6 +289,11 @@ def change_sovits_weights(sovits_path, prompt_language=None, text_language=None)
         hps.model.version = "v1"
     else:
         hps.model.version = "v2"
+    has_pro_keys = ("ge_to512.weight" in dict_s2["weight"]) or ("sv_emb.weight" in dict_s2["weight"])
+    if has_pro_keys:
+        if "Pro" not in model_version:
+            model_version = "v2ProPlus" if "ProPlus" in sovits_path else "v2Pro"
+        hps.model.version = model_version
     version = hps.model.version
     # print("sovits版本:",hps.model.version)
     if model_version not in v3v4set:
