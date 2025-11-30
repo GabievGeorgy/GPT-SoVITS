@@ -1023,12 +1023,15 @@ class SynthesizerTrn(nn.Module):
         quantized = self.quantizer.decode(codes)
         if self.semantic_frame_rate == "25hz":
             quantized = F.interpolate(quantized, size=int(quantized.shape[-1] * 2), mode="nearest")
+        ge_512 = ge
+        if ge is not None and hasattr(self, "ge_to512") and self.ge_to512 is not None:
+            ge_512 = self.ge_to512(ge.transpose(2, 1)).transpose(2, 1)
         x, m_p, logs_p, y_mask, _, _ = self.enc_p(
             quantized,
             y_lengths,
             text,
             text_lengths,
-            self.ge_to512(ge.transpose(2, 1)).transpose(2, 1) if self.is_v2pro else ge,
+            ge_512,
             speed,
         )
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
@@ -1073,12 +1076,15 @@ class SynthesizerTrn(nn.Module):
             quantized = F.interpolate(quantized, size=int(quantized.shape[-1] * 2), mode="nearest")
             result_length = (2*result_length) if result_length is not None else None
             padding_length = (2*padding_length) if padding_length is not None else None
+        ge_512 = ge
+        if ge is not None and hasattr(self, "ge_to512") and self.ge_to512 is not None:
+            ge_512 = self.ge_to512(ge.transpose(2, 1)).transpose(2, 1)
         x, m_p, logs_p, y_mask, y_, y_mask_ = self.enc_p(
             quantized,
             y_lengths,
             text,
             text_lengths,
-            self.ge_to512(ge.transpose(2, 1)).transpose(2, 1) if self.is_v2pro else ge,
+            ge_512,
             speed,
             result_length=result_length, 
             overlap_frames=overlap_frames, 
