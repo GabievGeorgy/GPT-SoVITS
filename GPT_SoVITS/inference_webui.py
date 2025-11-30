@@ -629,6 +629,10 @@ def get_phones_and_bert(text, language, version, final=False):
     elif language == "en":
         langlist.append("en")
         textlist.append(text)
+    elif language == "ru":
+        # LangSegmenter does not handle Cyrillic; pass Russian text through untouched.
+        langlist.append("ru")
+        textlist.append(text)
     elif language == "auto":
         for tmp in LangSegmenter.getTexts(text):
             langlist.append(tmp["lang"])
