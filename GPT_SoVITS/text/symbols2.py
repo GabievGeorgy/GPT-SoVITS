@@ -5,6 +5,10 @@ pu_symbols = punctuation + ["SP", "SP2", "SP3", "UNK"]
 # pu_symbols = punctuation + ["SP", 'SP2', 'SP3','SP4', "UNK"]
 pad = "_"
 
+ru_letters = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+ru_punct = ",.!?-"
+ru_symbols = [f"RU_{ch}" for ch in ru_letters + ru_punct]
+
 c = [
     "AA",
     "EE",
@@ -780,7 +784,7 @@ yue_symbols = {
 }
 
 # symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa)+list(ko_symbols)#+list(yue_symbols)###直接这么加yue顺序乱了
-symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa)
+symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa) + ru_symbols
 symbols = sorted(set(symbols))
 # print(len(symbols))
 symbols += ["[", "]"]  ##日文新增上升下降调型

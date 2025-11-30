@@ -158,6 +158,7 @@ dict_language_v2 = {
     i18n("多语种混合"): "auto",  # 多语种启动切分识别语种
     i18n("多语种混合(粤语)"): "auto_yue",  # 多语种启动切分识别语种
 }
+dict_language_v2[i18n("Russian")] = "ru"
 dict_language = dict_language_v1 if version == "v1" else dict_language_v2
 
 tokenizer = AutoTokenizer.from_pretrained(bert_path)

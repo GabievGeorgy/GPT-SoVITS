@@ -123,6 +123,9 @@ if os.path.exists(txt_path) == False:
         "yue": "yue",
         "YUE": "yue",
         "Yue": "yue",
+        "ru": "ru",
+        "RU": "ru",
+        "Ru": "ru",
     }
     for line in lines[int(i_part) :: int(all_parts)]:
         try:
