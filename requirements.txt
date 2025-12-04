@@ -19,6 +19,7 @@ pyopenjtalk>=0.4.1
 g2p_en
 num2words
 torchaudio
+torchcodec
 modelscope
 sentencepiece
 transformers>=4.43,<=4.50

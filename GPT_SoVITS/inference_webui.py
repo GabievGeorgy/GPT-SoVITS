@@ -81,7 +81,6 @@ with open("./weight.json", "r", encoding="utf-8") as file:
 
 cnhubert_base_path = os.environ.get("cnhubert_base_path", "GPT_SoVITS/pretrained_models/chinese-hubert-base")
 bert_path = os.environ.get("bert_path", "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large")
-ru_bert_path = resolve_ru_bert_path(os.environ.get("ru_bert_path"))
 infer_ttswebui = os.environ.get("infer_ttswebui", 9872)
 infer_ttswebui = int(infer_ttswebui)
 is_share = os.environ.get("is_share", "False")
@@ -138,6 +137,7 @@ if torch.cuda.is_available():
     device = "cuda"
 else:
     device = "cpu"
+ru_bert_path = resolve_ru_bert_path(os.environ.get("ru_bert_path"))
 
 dict_language_v1 = {
     i18n("中文"): "all_zh",  # 全部按中文识别
