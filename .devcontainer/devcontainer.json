@@ -1,0 +1,49 @@
+{
+  "name": "GPT-SoVITS Dev",
+  "workspaceFolder": "/workspaces/GPT-SoVITS",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "VARIANT": "3.10",
+      "TORCH_CHANNEL": "cpu",
+      "TORCH_VERSION": "2.4.1"
+    }
+  },
+  "runArgs": [
+    "--shm-size=16g"
+  ],
+  "forwardPorts": [
+    9871,
+    9872,
+    9873,
+    9874,
+    9880
+  ],
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/GPT-SoVITS"
+  },
+  "postCreateCommand": "python -m pip cache purge",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.analysis.autoImportCompletions": true,
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tools",
+          "GPT_SoVITS/BigVGAN/tests"
+        ]
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}
