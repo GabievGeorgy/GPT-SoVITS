@@ -11,6 +11,7 @@ import json
 import platform
 import shutil
 import signal
+import time
 
 import psutil
 import torch
@@ -239,6 +240,34 @@ def kill_process(pid, process_name=""):
     else:
         kill_proc_tree(pid)
     print(process_name + i18n("进程已终止"))
+
+
+PROCESS_HEARTBEAT_SECONDS = 10
+
+
+def iter_wait_processes_with_heartbeat(processes, status_text, open_update, close_update, interval=PROCESS_HEARTBEAT_SECONDS):
+    """
+    Periodically yield status updates while waiting for subprocesses to finish.
+    Keeps the generator alive during long formatting steps.
+    """
+    last_ping = time.time()
+    total = len(processes)
+    while True:
+        alive = [p for p in processes if p.poll() is None]
+        if not alive:
+            break
+        now = time.time()
+        if now - last_ping >= interval:
+            finished = total - len(alive)
+            suffix = f" ({finished}/{total})" if total else ""
+            yield (status_text + suffix, open_update, close_update)
+            last_ping = now
+        time.sleep(1)
+    for p in processes:
+        try:
+            p.wait(timeout=0)
+        except Exception:
+            pass
 
 
 def process_info(process_name="", indicator=""):
@@ -814,8 +843,12 @@ def open1a(inp_text, inp_wav_dir, exp_name, gpu_numbers, bert_pretrained_dir):
             {"__type__": "update", "visible": False},
             {"__type__": "update", "visible": True},
         )
-        for p in ps1a:
-            p.wait()
+        yield from iter_wait_processes_with_heartbeat(
+            ps1a,
+            process_info(process_name_1a, "running"),
+            {"__type__": "update", "visible": False},
+            {"__type__": "update", "visible": True},
+        )
         opt = []
         for i_part in range(all_parts):
             txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
@@ -904,8 +937,12 @@ def open1b(version, inp_text, inp_wav_dir, exp_name, gpu_numbers, ssl_pretrained
             {"__type__": "update", "visible": False},
             {"__type__": "update", "visible": True},
         )
-        for p in ps1b:
-            p.wait()
+        yield from iter_wait_processes_with_heartbeat(
+            ps1b,
+            process_info(process_name_1b, "running"),
+            {"__type__": "update", "visible": False},
+            {"__type__": "update", "visible": True},
+        )
         ps1b = []
         if "Pro" in version:
             for i_part in range(all_parts):
@@ -921,8 +958,12 @@ def open1b(version, inp_text, inp_wav_dir, exp_name, gpu_numbers, ssl_pretrained
                 print(cmd)
                 p = Popen(cmd, shell=True)
                 ps1b.append(p)
-            for p in ps1b:
-                p.wait()
+            yield from iter_wait_processes_with_heartbeat(
+                ps1b,
+                process_info(process_name_1b, "running"),
+                {"__type__": "update", "visible": False},
+                {"__type__": "update", "visible": True},
+            )
             ps1b = []
         yield (
             process_info(process_name_1b, "finish"),
@@ -998,8 +1039,12 @@ def open1c(version, inp_text, inp_wav_dir, exp_name, gpu_numbers, pretrained_s2G
             {"__type__": "update", "visible": False},
             {"__type__": "update", "visible": True},
         )
-        for p in ps1c:
-            p.wait()
+        yield from iter_wait_processes_with_heartbeat(
+            ps1c,
+            process_info(process_name_1c, "running"),
+            {"__type__": "update", "visible": False},
+            {"__type__": "update", "visible": True},
+        )
         opt = ["item_name\tsemantic_audio"]
         path_semantic = "%s/6-name2semantic.tsv" % opt_dir
         for i_part in range(all_parts):
@@ -1098,8 +1143,12 @@ def open1abc(
                     {"__type__": "update", "visible": False},
                     {"__type__": "update", "visible": True},
                 )
-                for p in ps1abc:
-                    p.wait()
+                yield from iter_wait_processes_with_heartbeat(
+                    ps1abc,
+                    i18n("进度") + ": 1A-Doing",
+                    {"__type__": "update", "visible": False},
+                    {"__type__": "update", "visible": True},
+                )
 
                 opt = []
                 for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
@@ -1145,8 +1194,12 @@ def open1abc(
                 {"__type__": "update", "visible": False},
                 {"__type__": "update", "visible": True},
             )
-            for p in ps1abc:
-                p.wait()
+            yield from iter_wait_processes_with_heartbeat(
+                ps1abc,
+                i18n("进度") + ": 1A-Done, 1B-Doing",
+                {"__type__": "update", "visible": False},
+                {"__type__": "update", "visible": True},
+            )
             ps1abc = []
             if "Pro" in version:
                 for i_part in range(all_parts):
@@ -1162,8 +1215,12 @@ def open1abc(
                     print(cmd)
                     p = Popen(cmd, shell=True)
                     ps1abc.append(p)
-                for p in ps1abc:
-                    p.wait()
+                yield from iter_wait_processes_with_heartbeat(
+                    ps1abc,
+                    i18n("进度") + ": 1A-Done, 1B-Doing",
+                    {"__type__": "update", "visible": False},
+                    {"__type__": "update", "visible": True},
+                )
                 ps1abc = []
             yield (
                 i18n("进度") + ": 1A-Done, 1B-Done",
@@ -1207,8 +1264,12 @@ def open1abc(
                     {"__type__": "update", "visible": False},
                     {"__type__": "update", "visible": True},
                 )
-                for p in ps1abc:
-                    p.wait()
+                yield from iter_wait_processes_with_heartbeat(
+                    ps1abc,
+                    i18n("进度") + ": 1A-Done, 1B-Done, 1C-Doing",
+                    {"__type__": "update", "visible": False},
+                    {"__type__": "update", "visible": True},
+                )
 
                 opt = ["item_name\tsemantic_audio"]
                 for i_part in range(all_parts):
@@ -1229,6 +1290,9 @@ def open1abc(
                 {"__type__": "update", "visible": True},
                 {"__type__": "update", "visible": False},
             )
+        except GeneratorExit:
+            close1abc()
+            raise
         except:
             traceback.print_exc()
             close1abc()
