@@ -3,6 +3,7 @@ from typing import List, Tuple
 from gruut import sentences as gruut_sentences
 
 from .ru_normalizer import normalize_ru
+from . import symbols2 as symbols_mod
 
 RU_PUNCT = ",.!?-"
 
@@ -82,23 +83,26 @@ LETTER_FALLBACK = {
     "я": ["RU_j", "RU_a"],
 }
 
+ALL_SYMBOLS = set(symbols_mod.symbols)
+
 
 def ipa_to_ru_tokens(phone: str) -> List[str]:
     tokens: List[str] = []
-
     if not phone:
         return tokens
 
-    # Stress marker can be a separate symbol or inline.
-    if "ˈ" in phone or "'" in phone:
-        tokens.append("RU_STRESS")
-        phone = phone.replace("ˈ", "").replace("'", "")
-
-    if phone in ("ˈ", "ˌ", "'"):
-        tokens.append("RU_STRESS")
-        return tokens
+    stressed = False
+    if any(m in phone for m in ("ˈ", "ˌ", "'")):
+        stressed = True
+        phone = phone.replace("ˈ", "").replace("ˌ", "").replace("'", "")
 
     phone = phone.replace("ː", "")
+
+    if stressed:
+        tokens.append("RU_STRESS")
+
+    if not phone:
+        return tokens
 
     if phone in VOWEL_MAP:
         tokens.append(VOWEL_MAP[phone])
@@ -114,7 +118,7 @@ def ipa_to_ru_tokens(phone: str) -> List[str]:
     elif phone in ("t͡ɕ", "tɕ"):
         base_token = "RU_ch"
         soft = True
-    elif phone == "ɕ":
+    elif phone in ("ɕ", "ɕː"):
         base_token = "RU_sh"
         soft = True
     elif phone == "ʑ":
@@ -127,9 +131,7 @@ def ipa_to_ru_tokens(phone: str) -> List[str]:
         tokens.append(base_token)
         if soft:
             tokens.append("RU_soft")
-        return tokens
 
-    # Unknown IPA symbol.
     return tokens
 
 
@@ -140,15 +142,25 @@ def _fallback_letters_to_tokens(word: str) -> List[str]:
     return tokens
 
 
+def _filter_unknown(phones: List[str]) -> List[str]:
+    out: List[str] = []
+    for ph in phones:
+        if ph in ALL_SYMBOLS:
+            out.append(ph)
+        else:
+            if "UNK" in ALL_SYMBOLS:
+                out.append("UNK")
+    return out
+
+
 def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
-    """
-    text -> (phones, word2ph, norm_text)
-    """
     text = text.strip()
     if not text:
         return [], [], ""
 
     norm_text = normalize_ru(text)
+    if not norm_text:
+        return [], [], ""
 
     phones: List[str] = []
     word2ph: List[int] = []
@@ -161,23 +173,31 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
                 continue
 
             if all(ch in RU_PUNCT for ch in raw):
-                phones.extend(list(raw))
+                for ch in raw:
+                    phones.append(ch)
+                    word2ph.append(1)
+                    norm_words.append(ch)
                 continue
 
             start_len = len(phones)
 
             if getattr(word, "phonemes", None):
                 for ph in word.phonemes:
-                    ph_text = getattr(ph, "text", ph)
+                    ph_text = getattr(ph, "text", None)
+                    if ph_text is None:
+                        ph_text = str(ph)
                     tokens = ipa_to_ru_tokens(ph_text)
                     phones.extend(tokens)
             else:
                 phones.extend(_fallback_letters_to_tokens(raw.lower()))
 
             n_ph = len(phones) - start_len
+
             if n_ph > 0:
                 word2ph.append(n_ph)
                 norm_words.append(raw.lower())
+
+    phones = _filter_unknown(phones)
 
     norm_text_out = " ".join(norm_words)
     return phones, word2ph, norm_text_out
@@ -185,8 +205,3 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
 
 def g2p(text: str):
     return text_to_phonemes(text)
-
-
-if __name__ == "__main__":
-    sample = "Привет, мир! 123 руб. ул. Ленина, д. 5."
-    print(text_to_phonemes(sample))

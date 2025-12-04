@@ -33,7 +33,7 @@ ru_symbols = [
     "RU_ts",
     "RU_ch",
     "RU_soft",
-    "RU_STRESS",
+    "RU_STRESS", # not working now
 ]
 
 c = [
@@ -811,18 +811,29 @@ yue_symbols = {
 }
 
 # symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa)+list(ko_symbols)#+list(yue_symbols)###直接这么加yue顺序乱了
-symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa) + ru_symbols
-symbols = sorted(set(symbols))
+base_symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa)
+base_symbols = sorted(set(base_symbols))
 # print(len(symbols))
-symbols += ["[", "]"]  ##日文新增上升下降调型
-symbols += sorted(list(ko_symbols))
-symbols += sorted(list(yue_symbols))  ##新加的yue统一摆在后头#已查过开头加Y后没有重复，韩文显然不会重复
+base_symbols += ["[", "]"]  ##日文新增上升下降调型
+base_symbols += sorted(list(ko_symbols))
+base_symbols += sorted(list(yue_symbols))  ##新加的yue统一摆在后头#已查过开头加Y后没有重复，韩文显然不会重复
 # print(len(symbols))
+
+symbols = list(base_symbols)
+for s in ru_symbols:
+    if s not in symbols:
+        symbols.append(s)
+
+symbols = list(dict.fromkeys(symbols))
+
 if __name__ == "__main__":
-    print(len(symbols))
-"""
-粤语：
-    732-353=379
-韩文+粤语：
-    732-322=410
-"""
+#     print(len(symbols))
+# """
+# 粤语：
+#     732-353=379
+# 韩文+粤语：
+#     732-322=410
+# """
+    print("len(symbols) =", len(symbols))
+    print("pad index:", symbols.index(pad))
+    print("RU_a in symbols:", "RU_a" in symbols)

@@ -4,17 +4,6 @@ from num2words import num2words
 # Numbers with optional decimal part.
 RE_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
-ABBREV_MAP = {
-    "г.": "город",
-    "ул.": "улица",
-    "д.": "дом",
-    "кв.": "квартира",
-    "руб.": "рублей",
-    "млн": "миллионов",
-    "млрд": "миллиардов",
-}
-
-
 def _replace_numbers(text: str) -> str:
     def repl(match: re.Match[str]) -> str:
         raw = match.group(0).replace(",", ".")
@@ -31,12 +20,7 @@ def _replace_numbers(text: str) -> str:
 
 
 def _replace_abbrev(text: str) -> str:
-    tokens = text.split()
-    for idx, token in enumerate(tokens):
-        key = token.lower()
-        if key in ABBREV_MAP:
-            tokens[idx] = ABBREV_MAP[key]
-    return " ".join(tokens)
+    return text
 
 
 def normalize_ru(text: str) -> str:
