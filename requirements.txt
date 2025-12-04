@@ -6,6 +6,8 @@ librosa==0.10.2
 numba
 pytorch-lightning>=2.4
 gradio<5
+gruut
+gruut-lang-ru
 ffmpeg-python
 onnxruntime; platform_machine == "aarch64" or platform_machine == "arm64"
 onnxruntime-gpu; platform_machine == "x86_64" or platform_machine == "AMD64"
@@ -15,6 +17,7 @@ cn2an
 pypinyin
 pyopenjtalk>=0.4.1
 g2p_en
+num2words
 torchaudio
 modelscope
 sentencepiece

@@ -5,9 +5,36 @@ pu_symbols = punctuation + ["SP", "SP2", "SP3", "UNK"]
 # pu_symbols = punctuation + ["SP", 'SP2', 'SP3','SP4', "UNK"]
 pad = "_"
 
-ru_letters = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
-ru_punct = ",.!?-"
-ru_symbols = [f"RU_{ch}" for ch in ru_letters + ru_punct]
+ru_symbols = [
+    "RU_a",
+    "RU_o",
+    "RU_e",
+    "RU_i",
+    "RU_u",
+    "RU_y",
+    "RU_p",
+    "RU_b",
+    "RU_t",
+    "RU_d",
+    "RU_k",
+    "RU_g",
+    "RU_f",
+    "RU_v",
+    "RU_s",
+    "RU_z",
+    "RU_m",
+    "RU_n",
+    "RU_r",
+    "RU_l",
+    "RU_h",
+    "RU_sh",
+    "RU_zh",
+    "RU_j",
+    "RU_ts",
+    "RU_ch",
+    "RU_soft",
+    "RU_STRESS",
+]
 
 c = [
     "AA",
