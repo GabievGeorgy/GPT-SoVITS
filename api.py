@@ -168,6 +168,7 @@ from peft import LoraConfig, get_peft_model
 from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from text import cleaned_text_to_sequence
 from text.cleaner import clean_text
+from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
 from module.mel_processing import spectrogram_torch
 import config as global_config
 import logging
@@ -530,6 +531,14 @@ def get_bert_inf(phones, word2ph, norm_text, language):
     language = language.replace("all_", "")
     if language == "zh":
         bert = get_bert_feature(norm_text, word2ph).to(device)  # .to(dtype)
+    elif language == "ru":
+        bert = get_ru_bert_feature(
+            norm_text=norm_text,
+            word2ph=word2ph,
+            bert_dir=ru_bert_path,
+            device=device,
+            is_half=is_half,
+        ).to(device)
     else:
         bert = torch.zeros(
             (1024, len(phones)),
@@ -1213,6 +1222,12 @@ parser.add_argument("-cp", "--cut_punc", type=str, default="", help="文本切�
 # 切割常用分句符为 `python ./api.py -cp ".?!。？！"`
 parser.add_argument("-hb", "--hubert_path", type=str, default=g_config.cnhubert_path, help="覆盖config.cnhubert_path")
 parser.add_argument("-b", "--bert_path", type=str, default=g_config.bert_path, help="覆盖config.bert_path")
+parser.add_argument(
+    "--ru_bert_path",
+    type=str,
+    default=os.environ.get("ru_bert_path"),
+    help="Russian BERT/RoBERTa directory for language=ru",
+)
 
 args = parser.parse_args()
 sovits_path = args.sovits_path
@@ -1222,6 +1237,7 @@ port = args.port
 host = args.bind_addr
 cnhubert_base_path = args.hubert_path
 bert_path = args.bert_path
+ru_bert_path = resolve_ru_bert_path(args.ru_bert_path)
 default_cut_punc = args.cut_punc
 
 # 应用参数配置

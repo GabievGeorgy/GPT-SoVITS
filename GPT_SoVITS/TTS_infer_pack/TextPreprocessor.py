@@ -11,9 +11,10 @@ import re
 import torch
 from text.LangSegmenter import LangSegmenter
 from text import chinese
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from text.cleaner import clean_text
 from text import cleaned_text_to_sequence
+from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from TTS_infer_pack.text_segmentation_method import split_big_text, splits, get_method as get_seg_method
 
@@ -50,10 +51,20 @@ def merge_short_text_in_array(texts: str, threshold: int) -> list:
 
 
 class TextPreprocessor:
-    def __init__(self, bert_model: AutoModelForMaskedLM, tokenizer: AutoTokenizer, device: torch.device):
+    def __init__(
+        self,
+        bert_model: AutoModelForMaskedLM,
+        tokenizer: AutoTokenizer,
+        device: torch.device,
+        is_half: bool = False,
+        ru_bert_path: Optional[str] = None,
+    ):
         self.bert_model = bert_model
         self.tokenizer = tokenizer
         self.device = device
+        self.is_half = is_half
+        self.dtype = torch.float16 if self.is_half else torch.float32
+        self.ru_bert_path = resolve_ru_bert_path(ru_bert_path)
         self.bert_lock = threading.RLock()
 
     def preprocess(self, text: str, lang: str, text_split_method: str, version: str = "v2") -> List[Dict]:
@@ -213,10 +224,18 @@ class TextPreprocessor:
         language = language.replace("all_", "")
         if language == "zh":
             feature = self.get_bert_feature(norm_text, word2ph).to(self.device)
+        elif language == "ru":
+            feature = get_ru_bert_feature(
+                norm_text=norm_text,
+                word2ph=word2ph,
+                bert_dir=self.ru_bert_path,
+                device=str(self.device),
+                is_half=self.is_half,
+            ).to(self.device)
         else:
             feature = torch.zeros(
                 (1024, len(phones)),
-                dtype=torch.float32,
+                dtype=self.dtype,
             ).to(self.device)
 
         return feature

@@ -81,6 +81,7 @@ with open("./weight.json", "r", encoding="utf-8") as file:
 
 cnhubert_base_path = os.environ.get("cnhubert_base_path", "GPT_SoVITS/pretrained_models/chinese-hubert-base")
 bert_path = os.environ.get("bert_path", "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large")
+ru_bert_path = resolve_ru_bert_path(os.environ.get("ru_bert_path"))
 infer_ttswebui = os.environ.get("infer_ttswebui", 9872)
 infer_ttswebui = int(infer_ttswebui)
 is_share = os.environ.get("is_share", "False")
@@ -122,6 +123,7 @@ from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from peft import LoraConfig, get_peft_model
 from text import cleaned_text_to_sequence
 from text.cleaner import clean_text
+from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
 
 from tools.assets import css, js, top_html
 from tools.i18n.i18n import I18nAuto, scan_language_list
@@ -569,6 +571,14 @@ def get_bert_inf(phones, word2ph, norm_text, language):
     language = language.replace("all_", "")
     if language == "zh":
         bert = get_bert_feature(norm_text, word2ph).to(device)  # .to(dtype)
+    elif language == "ru":
+        bert = get_ru_bert_feature(
+            norm_text=norm_text,
+            word2ph=word2ph,
+            bert_dir=ru_bert_path,
+            device=device,
+            is_half=is_half,
+        ).to(device)
     else:
         bert = torch.zeros(
             (1024, len(phones)),

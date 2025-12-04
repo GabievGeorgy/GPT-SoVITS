@@ -29,6 +29,7 @@ from module.models import SynthesizerTrn, SynthesizerTrnV3, Generator
 from peft import LoraConfig, get_peft_model
 from process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
 from transformers import AutoModelForMaskedLM, AutoTokenizer
+from text.ru_bert import resolve_ru_bert_path
 
 from tools.audio_sr import AP_BWE
 from tools.i18n.i18n import I18nAuto, scan_language_list
@@ -37,6 +38,7 @@ from TTS_infer_pack.TextPreprocessor import TextPreprocessor
 from sv import SV
 
 resample_transform_dict = {}
+DEFAULT_RU_BERT_PATH = resolve_ru_bert_path()
 
 
 def resample(audio_tensor, sr0, sr1, device):
@@ -224,6 +226,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/s2G488k.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
         "v2": {
             "device": "cpu",
@@ -233,6 +236,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
         "v3": {
             "device": "cpu",
@@ -242,6 +246,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/s2Gv3.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
         "v4": {
             "device": "cpu",
@@ -251,6 +256,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/gsv-v4-pretrained/s2Gv4.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
         "v2Pro": {
             "device": "cpu",
@@ -260,6 +266,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/v2Pro/s2Gv2Pro.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
         "v2ProPlus": {
             "device": "cpu",
@@ -269,6 +276,7 @@ class TTS_Config:
             "vits_weights_path": "GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth",
             "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base",
             "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "ru_bert_base_path": DEFAULT_RU_BERT_PATH,
         },
     }
     configs: dict = None
@@ -335,6 +343,7 @@ class TTS_Config:
         self.vits_weights_path = self.configs.get("vits_weights_path", None)
         self.bert_base_path = self.configs.get("bert_base_path", None)
         self.cnhuhbert_base_path = self.configs.get("cnhuhbert_base_path", None)
+        self.ru_bert_base_path = self.configs.get("ru_bert_base_path", None)
         self.languages = self.v1_languages if self.version == "v1" else self.v2_languages
 
         self.use_vocoder: bool = False
@@ -351,6 +360,9 @@ class TTS_Config:
         if (self.cnhuhbert_base_path in [None, ""]) or (not os.path.exists(self.cnhuhbert_base_path)):
             self.cnhuhbert_base_path = self.default_configs[version]["cnhuhbert_base_path"]
             print(f"fall back to default cnhuhbert_base_path: {self.cnhuhbert_base_path}")
+        if (self.ru_bert_base_path in [None, ""]) or (not os.path.exists(self.ru_bert_base_path)):
+            self.ru_bert_base_path = self.default_configs[version]["ru_bert_base_path"]
+            print(f"fall back to default ru_bert_base_path: {self.ru_bert_base_path}")
         self.update_configs()
 
         self.max_sec = None
@@ -393,6 +405,7 @@ class TTS_Config:
             "vits_weights_path": self.vits_weights_path,
             "bert_base_path": self.bert_base_path,
             "cnhuhbert_base_path": self.cnhuhbert_base_path,
+            "ru_bert_base_path": self.ru_bert_base_path,
         }
         return self.config
 
@@ -446,7 +459,11 @@ class TTS:
         self._init_models()
 
         self.text_preprocessor: TextPreprocessor = TextPreprocessor(
-            self.bert_model, self.bert_tokenizer, self.configs.device
+            self.bert_model,
+            self.bert_tokenizer,
+            self.configs.device,
+            self.configs.is_half,
+            self.configs.ru_bert_base_path,
         )
 
         self.prompt_cache: dict = {

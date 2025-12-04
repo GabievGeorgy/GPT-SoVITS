@@ -11,6 +11,8 @@ if "_CUDA_VISIBLE_DEVICES" in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["_CUDA_VISIBLE_DEVICES"]
 opt_dir = os.environ.get("opt_dir")
 bert_pretrained_dir = os.environ.get("bert_pretrained_dir")
+tokenizer = None
+bert_model = None
 import torch
 
 is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
@@ -18,6 +20,7 @@ version = os.environ.get("version", None)
 import traceback
 import os.path
 from text.cleaner import clean_text
+from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import clean_path
 
@@ -54,18 +57,30 @@ if os.path.exists(txt_path) == False:
     #     device = "mps"
     else:
         device = "cpu"
-    if os.path.exists(bert_pretrained_dir):
-        ...
-    else:
-        raise FileNotFoundError(bert_pretrained_dir)
-    tokenizer = AutoTokenizer.from_pretrained(bert_pretrained_dir)
-    bert_model = AutoModelForMaskedLM.from_pretrained(bert_pretrained_dir)
-    if is_half == True:
-        bert_model = bert_model.half().to(device)
-    else:
-        bert_model = bert_model.to(device)
+    ru_bert_dir = resolve_ru_bert_path(os.environ.get("ru_bert_path"))
+
+    def ensure_bert():
+        global tokenizer, bert_model, bert_pretrained_dir
+        if tokenizer is not None and bert_model is not None:
+            return
+        model_dir = bert_pretrained_dir or os.environ.get("bert_path")
+        if model_dir in [None, ""]:
+            local_zh_bert = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
+            if os.path.exists(local_zh_bert):
+                model_dir = local_zh_bert
+        if model_dir in [None, ""]:
+            raise FileNotFoundError("Please set bert_pretrained_dir/bert_path for Chinese text.")
+        bert_pretrained_dir = model_dir
+        tok = AutoTokenizer.from_pretrained(model_dir)
+        mdl = AutoModelForMaskedLM.from_pretrained(model_dir)
+        if is_half == True:
+            mdl = mdl.half().to(device)
+        else:
+            mdl = mdl.to(device)
+        tokenizer, bert_model = tok, mdl
 
     def get_bert_feature(text, word2ph):
+        ensure_bert()
         with torch.no_grad():
             inputs = tokenizer(text, return_tensors="pt")
             for i in inputs:
@@ -91,11 +106,22 @@ if os.path.exists(txt_path) == False:
                 print(name)
                 phones, word2ph, norm_text = clean_text(text.replace("%", "-").replace("￥", ","), lan, version)
                 path_bert = "%s/%s.pt" % (bert_dir, name)
-                if os.path.exists(path_bert) == False and lan == "zh":
-                    bert_feature = get_bert_feature(norm_text, word2ph)
-                    assert bert_feature.shape[-1] == len(phones)
-                    # torch.save(bert_feature, path_bert)
-                    my_save(bert_feature, path_bert)
+                if os.path.exists(path_bert) == False:
+                    bert_feature = None
+                    if lan == "zh":
+                        bert_feature = get_bert_feature(norm_text, word2ph)
+                    elif lan == "ru":
+                        bert_feature = get_ru_bert_feature(
+                            norm_text=norm_text,
+                            word2ph=word2ph,
+                            bert_dir=ru_bert_dir,
+                            device=device,
+                            is_half=is_half,
+                        )
+
+                    if bert_feature is not None:
+                        assert bert_feature.shape[-1] == len(phones), (bert_feature.shape, len(phones))
+                        my_save(bert_feature, path_bert)
                 phones = " ".join(phones)
                 # res.append([name,phones])
                 res.append([name, phones, word2ph, norm_text])
