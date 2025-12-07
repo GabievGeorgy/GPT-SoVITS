@@ -1,6 +1,7 @@
 --no-binary=opencc
 numpy<2.0
 scipy
+pandas
 tensorboard
 librosa==0.10.2
 numba
@@ -8,6 +9,8 @@ pytorch-lightning>=2.4
 gradio<5
 gruut
 gruut-lang-ru
+silero-stress
+git+https://github.com/NikiPshg/TryIPaG2P.git
 ffmpeg-python
 onnxruntime; platform_machine == "aarch64" or platform_machine == "arm64"
 onnxruntime-gpu; platform_machine == "x86_64" or platform_machine == "AMD64"
