@@ -155,29 +155,32 @@ def run_silero_stress(norm_text: str) -> str:
 
 def extract_word_and_stress(word_with_plus: str) -> Tuple[str, Optional[int]]:
     """
-    'предыд+ущем'  -> ('предыдущем', 2)   # + before stressed vowel
-    'пред+ыдущем'  -> ('предыдущем', 2)   # + after stressed vowel
-    'через'        -> ('через', None)
-    '+опыте'       -> ('опыте', 0)        # edge case but handled
+    Silero-stress format:
+      'предыд+ущем' -> ('предыдущем', 2)
+      'зов+ут'      -> ('зовут', 1)
+      '+я'          -> ('я', 0)
+      'через'       -> ('через', None)
 
     stress_vowel_ordinal: index of stressed vowel among vowels in the word (0, 1, 2, ...)
-    or None if `+` absent or cannot be aligned to a vowel.
-    Supports both placements of `+`: before or after the stressed vowel.
+    or None if `+` is absent.
     """
     if "+" not in word_with_plus:
         return word_with_plus, None
 
-    plus_pos = word_with_plus.index("+")
     vowel_ord = -1
     stress_vowel_ordinal: Optional[int] = None
 
     clean_chars: List[str] = []
 
-    for i, ch in enumerate(word_with_plus):
+    i = 0
+    while i < len(word_with_plus):
+        ch = word_with_plus[i]
+
         if ch == "+":
             next_char = word_with_plus[i + 1] if i + 1 < len(word_with_plus) else ""
             if next_char in RU_VOWELS:
                 stress_vowel_ordinal = vowel_ord + 1
+            i += 1
             continue
 
         clean_chars.append(ch)
@@ -185,8 +188,7 @@ def extract_word_and_stress(word_with_plus: str) -> Tuple[str, Optional[int]]:
         if ch in RU_VOWELS:
             vowel_ord += 1
 
-            if i + 1 == plus_pos and stress_vowel_ordinal is None:
-                stress_vowel_ordinal = vowel_ord
+        i += 1
 
     clean_word = "".join(clean_chars)
     return clean_word, stress_vowel_ordinal
@@ -243,13 +245,23 @@ def load_tryipa_model():
 
     import torch
 
+    old_compile = getattr(torch, "compile", None)
+
     def _noop_compile(module, *args, **kwargs):
         return module
 
     torch.compile = _noop_compile  # type: ignore[attr-defined]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    _TRYIPA_MODEL = G2PModel(device=device, load_dataset=True)
+
+    try:
+        _TRYIPA_MODEL = G2PModel(device=device, load_dataset=True)
+    finally:
+        if old_compile is None:
+            delattr(torch, "compile")  # type: ignore[attr-defined]
+        else:
+            torch.compile = old_compile  # type: ignore[attr-defined]
+
     return _TRYIPA_MODEL
 
 
@@ -370,6 +382,7 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
     if not text:
         return [], [], ""
 
+    # Normalized text is used for norm_text_out.
     norm_text = normalize_ru(text)
     if not norm_text:
         return [], [], ""
@@ -378,12 +391,14 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
     word2ph: List[int] = []
     norm_words: List[str] = []
 
+    # List of (word_with_punct, stress_vowel_ordinal)
     stressed_words = stress_pipeline(text)
 
     for raw_word, stress_vowel_ordinal in stressed_words:
         if not raw_word or raw_word.isspace():
             continue
 
+        # 1) Token is pure punctuation ("," or "..." etc.)
         if all(ch in RU_PUNCT for ch in raw_word):
             for ch in raw_word:
                 phones.append(ch)
@@ -391,11 +406,30 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
                 norm_words.append(ch)
             continue
 
-        word = raw_word.lower()
+        # 2) Separate trailing punctuation from the word: "привет," -> "привет" + ","
+        core_word = raw_word
+        trailing_punct = ""
+
+        # Collect consecutive trailing characters from RU_PUNCT
+        while core_word and core_word[-1] in RU_PUNCT:
+            trailing_punct = core_word[-1] + trailing_punct
+            core_word = core_word[:-1]
+
+        # If only punctuation remains after stripping -> treat as pure punctuation
+        if not core_word:
+            for ch in trailing_punct:
+                phones.append(ch)
+                word2ph.append(1)
+                norm_words.append(ch)
+            continue
+
+        word = core_word.lower()
+        start_len = len(phones)
 
         ipa_seq: Optional[List[str]] = None
         ru_tokens: List[str] = []
 
+        # 3) G2P: word -> IPA -> RU_* (with RU_STRESS insertion)
         try:
             ipa_seq = word_to_ipa(word)
         except Exception:
@@ -404,17 +438,23 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
         if ipa_seq:
             ru_tokens = ipa_word_to_ru_tokens(ipa_seq, stress_vowel_ordinal)
 
+        # 4) Fallback by letters if G2P returned nothing
         if not ru_tokens:
             ru_tokens = _fallback_letters_to_tokens(word)
 
         n_ph = len(ru_tokens)
-        if n_ph <= 0:
-            continue
+        if n_ph > 0:
+            phones.extend(ru_tokens)
+            word2ph.append(n_ph)
+            norm_words.append(word)
 
-        phones.extend(ru_tokens)
-        word2ph.append(n_ph)
-        norm_words.append(word)
+        # 5) Append trailing punctuation as separate "words" of length 1 phoneme
+        for ch in trailing_punct:
+            phones.append(ch)
+            word2ph.append(1)
+            norm_words.append(ch)
 
+    # Filter unknown tokens
     phones = _filter_unknown(phones)
 
     norm_text_out = " ".join(norm_words)
