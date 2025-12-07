@@ -17,10 +17,11 @@ import torch
 
 is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
 version = os.environ.get("version", None)
+use_ru_bert = is_ru_bert_enabled()
 import traceback
 import os.path
 from text.cleaner import clean_text
-from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
+from text.ru_bert import get_ru_bert_feature, is_ru_bert_enabled, resolve_ru_bert_path
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import clean_path
 
@@ -57,7 +58,7 @@ if os.path.exists(txt_path) == False:
     #     device = "mps"
     else:
         device = "cpu"
-    ru_bert_dir = resolve_ru_bert_path(os.environ.get("ru_bert_path"))
+    ru_bert_dir = resolve_ru_bert_path(os.environ.get("ru_bert_path")) if use_ru_bert else None
 
     def ensure_bert():
         global tokenizer, bert_model, bert_pretrained_dir
@@ -110,7 +111,7 @@ if os.path.exists(txt_path) == False:
                     bert_feature = None
                     if lan == "zh":
                         bert_feature = get_bert_feature(norm_text, word2ph)
-                    elif lan == "ru":
+                    elif lan == "ru" and use_ru_bert:
                         bert_feature = get_ru_bert_feature(
                             norm_text=norm_text,
                             word2ph=word2ph,

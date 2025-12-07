@@ -14,7 +14,7 @@ from text import chinese
 from typing import Dict, List, Optional, Tuple
 from text.cleaner import clean_text
 from text import cleaned_text_to_sequence
-from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
+from text.ru_bert import get_ru_bert_feature, is_ru_bert_enabled, resolve_ru_bert_path
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from TTS_infer_pack.text_segmentation_method import split_big_text, splits, get_method as get_seg_method
 
@@ -64,7 +64,8 @@ class TextPreprocessor:
         self.device = device
         self.is_half = is_half
         self.dtype = torch.float16 if self.is_half else torch.float32
-        self.ru_bert_path = resolve_ru_bert_path(ru_bert_path)
+        self.use_ru_bert = is_ru_bert_enabled()
+        self.ru_bert_path = resolve_ru_bert_path(ru_bert_path) if self.use_ru_bert else None
         self.bert_lock = threading.RLock()
 
     def preprocess(self, text: str, lang: str, text_split_method: str, version: str = "v2") -> List[Dict]:
@@ -224,7 +225,7 @@ class TextPreprocessor:
         language = language.replace("all_", "")
         if language == "zh":
             feature = self.get_bert_feature(norm_text, word2ph).to(self.device)
-        elif language == "ru":
+        elif language == "ru" and self.use_ru_bert:
             feature = get_ru_bert_feature(
                 norm_text=norm_text,
                 word2ph=word2ph,

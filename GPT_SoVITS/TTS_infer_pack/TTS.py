@@ -29,7 +29,7 @@ from module.models import SynthesizerTrn, SynthesizerTrnV3, Generator
 from peft import LoraConfig, get_peft_model
 from process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
 from transformers import AutoModelForMaskedLM, AutoTokenizer
-from text.ru_bert import resolve_ru_bert_path
+from text.ru_bert import is_ru_bert_enabled, resolve_ru_bert_path
 
 from tools.audio_sr import AP_BWE
 from tools.i18n.i18n import I18nAuto, scan_language_list
@@ -38,7 +38,8 @@ from TTS_infer_pack.TextPreprocessor import TextPreprocessor
 from sv import SV
 
 resample_transform_dict = {}
-DEFAULT_RU_BERT_PATH = resolve_ru_bert_path()
+RU_BERT_AVAILABLE = is_ru_bert_enabled()
+DEFAULT_RU_BERT_PATH = resolve_ru_bert_path() if RU_BERT_AVAILABLE else ""
 
 
 def resample(audio_tensor, sr0, sr1, device):
@@ -343,7 +344,8 @@ class TTS_Config:
         self.vits_weights_path = self.configs.get("vits_weights_path", None)
         self.bert_base_path = self.configs.get("bert_base_path", None)
         self.cnhuhbert_base_path = self.configs.get("cnhuhbert_base_path", None)
-        self.ru_bert_base_path = self.configs.get("ru_bert_base_path", None)
+        self.use_ru_bert = RU_BERT_AVAILABLE
+        self.ru_bert_base_path = self.configs.get("ru_bert_base_path", None) if self.use_ru_bert else None
         self.languages = self.v1_languages if self.version == "v1" else self.v2_languages
 
         self.use_vocoder: bool = False
@@ -360,9 +362,12 @@ class TTS_Config:
         if (self.cnhuhbert_base_path in [None, ""]) or (not os.path.exists(self.cnhuhbert_base_path)):
             self.cnhuhbert_base_path = self.default_configs[version]["cnhuhbert_base_path"]
             print(f"fall back to default cnhuhbert_base_path: {self.cnhuhbert_base_path}")
-        if (self.ru_bert_base_path in [None, ""]) or (not os.path.exists(self.ru_bert_base_path)):
-            self.ru_bert_base_path = self.default_configs[version]["ru_bert_base_path"]
-            print(f"fall back to default ru_bert_base_path: {self.ru_bert_base_path}")
+        if self.use_ru_bert:
+            if (self.ru_bert_base_path in [None, ""]) or (not os.path.exists(self.ru_bert_base_path)):
+                self.ru_bert_base_path = self.default_configs[version]["ru_bert_base_path"]
+                print(f"fall back to default ru_bert_base_path: {self.ru_bert_base_path}")
+        else:
+            self.ru_bert_base_path = None
         self.update_configs()
 
         self.max_sec = None

@@ -168,11 +168,13 @@ from peft import LoraConfig, get_peft_model
 from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from text import cleaned_text_to_sequence
 from text.cleaner import clean_text
-from text.ru_bert import get_ru_bert_feature, resolve_ru_bert_path
+from text.ru_bert import get_ru_bert_feature, is_ru_bert_enabled, resolve_ru_bert_path
 from module.mel_processing import spectrogram_torch
 import config as global_config
 import logging
 import subprocess
+
+RU_BERT_ENABLED = is_ru_bert_enabled()
 
 
 class DefaultRefer:
@@ -531,7 +533,7 @@ def get_bert_inf(phones, word2ph, norm_text, language):
     language = language.replace("all_", "")
     if language == "zh":
         bert = get_bert_feature(norm_text, word2ph).to(device)  # .to(dtype)
-    elif language == "ru":
+    elif language == "ru" and RU_BERT_ENABLED:
         bert = get_ru_bert_feature(
             norm_text=norm_text,
             word2ph=word2ph,
@@ -1237,7 +1239,7 @@ port = args.port
 host = args.bind_addr
 cnhubert_base_path = args.hubert_path
 bert_path = args.bert_path
-ru_bert_path = resolve_ru_bert_path(args.ru_bert_path)
+ru_bert_path = resolve_ru_bert_path(args.ru_bert_path) if RU_BERT_ENABLED else ""
 default_cut_punc = args.cut_punc
 
 # 应用参数配置

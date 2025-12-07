@@ -13,6 +13,22 @@ _RU_BERT_DEVICE: str = "cpu"
 _RU_BERT_HIDDEN: Optional[int] = None
 RU_BERT_LOCAL_PATH = "GPT_SoVITS/pretrained_models/ruRoberta-large"
 RU_BERT_REMOTE_PATH = "ai-forever/ruRoberta-large"
+RU_BERT_FALLBACK_HIDDEN = 1024
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ["1", "true", "yes", "on"]
+
+
+RU_BERT_ENABLED = _env_flag("RU_BERT_ENABLED", default=False)
+
+
+def is_ru_bert_enabled() -> bool:
+    """Central toggle to enable/disable ruBERT without deleting code paths."""
+    return RU_BERT_ENABLED
 
 
 def resolve_ru_bert_path(path: Optional[str] = None) -> str:
@@ -20,6 +36,8 @@ def resolve_ru_bert_path(path: Optional[str] = None) -> str:
     Resolve the ruBERT/RuRoberta path in one place to avoid scattered literals.
     Priority: explicit argument -> env `ru_bert_path` -> local cache -> HF hub.
     """
+    if not is_ru_bert_enabled():
+        return ""
     candidate = path if path not in [None, ""] else os.environ.get("ru_bert_path")
     if candidate not in [None, ""]:
         return candidate
@@ -36,6 +54,9 @@ def load_ru_bert(
     Returns (tokenizer, model, device, hidden_size).
     """
     global _RU_BERT_TOKENIZER, _RU_BERT_MODEL, _RU_BERT_DEVICE, _RU_BERT_HIDDEN
+
+    if not is_ru_bert_enabled():
+        raise RuntimeError("ruBERT is disabled. Set RU_BERT_ENABLED=1 to enable it.")
 
     bert_dir = resolve_ru_bert_path(bert_dir)
 
@@ -78,8 +99,13 @@ def get_ru_bert_feature(
     """
     norm_text: text after normalize_ru/clean_text(..., language="ru")
     word2ph: number of phonemes per word/punctuation in norm_text
-    return: tensor [hidden_dim, sum(word2ph)] — phone-level BERT feature
+    return: tensor [hidden_dim, sum(word2ph)] ƒ?" phone-level BERT feature
     """
+    if not is_ru_bert_enabled():
+        device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float16 if is_half else torch.float32
+        return torch.zeros(RU_BERT_FALLBACK_HIDDEN, sum(word2ph), device=device, dtype=dtype)
+
     tokenizer, model, device, hidden_size = load_ru_bert(
         bert_dir=bert_dir,
         device=device,

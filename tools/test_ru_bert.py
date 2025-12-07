@@ -6,10 +6,19 @@ sys.path.append(str(ROOT))
 sys.path.append(str(ROOT / "GPT_SoVITS"))
 
 from GPT_SoVITS.text.cleaner import clean_text
-from GPT_SoVITS.text.ru_bert import get_ru_bert_feature, load_ru_bert, resolve_ru_bert_path
+from GPT_SoVITS.text.ru_bert import (
+    get_ru_bert_feature,
+    is_ru_bert_enabled,
+    load_ru_bert,
+    resolve_ru_bert_path,
+)
 
 
 def main():
+    if not is_ru_bert_enabled():
+        print("RU_BERT_ENABLED is disabled; skipping ruBERT test.")
+        return
+
     bert_dir = resolve_ru_bert_path(str(ROOT / "GPT_SoVITS" / "pretrained_models" / "ruRoberta-large"))
 
     load_ru_bert(bert_dir, device="cpu", is_half=False)
