@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Tuple
 
 from .ru_normalizer import normalize_ru
@@ -107,6 +108,7 @@ LETTER_FALLBACK = {
 ALL_SYMBOLS = set(symbols_mod.symbols)
 _SILERO_ACCENTOR = None
 _TRYIPA_MODEL = None
+_LOGGER = logging.getLogger(__name__)
 
 
 def _load_silero_accentor():
@@ -440,6 +442,7 @@ def text_to_phonemes(text: str) -> Tuple[List[str], List[int], str]:
 
         # 4) Fallback by letters if G2P returned nothing
         if not ru_tokens:
+            _LOGGER.warning("g2p_ru: fallback to LETTER_FALLBACK for word=%r", word)
             ru_tokens = _fallback_letters_to_tokens(word)
 
         n_ph = len(ru_tokens)
