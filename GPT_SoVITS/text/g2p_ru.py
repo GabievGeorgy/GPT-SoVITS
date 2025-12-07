@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .ru_normalizer import normalize_ru
 from . import symbols2 as symbols_mod

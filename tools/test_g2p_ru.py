@@ -15,6 +15,8 @@ def main():
         "123 руб. ул. Ленина, д. 5.",
         "Ёж сидит ещё в чаще щавеля.",
         "Мука и мука.",
+        "На горе стоит замок. Замок старый.",
+        "В замке висел старый замок.",
     ]
 
     symset = set(symbols_mod.symbols)
@@ -30,16 +32,21 @@ def main():
         total = sum(word2ph) if word2ph is not None else None
         print("LEN phones =", len(phones), "sum(word2ph) =", total)
 
-        if total is not None and total > len(phones):
-            raise RuntimeError("sum(word2ph) > len(phones) — ошибка в g2p_ru")
+        if total is not None and total != len(phones):
+            raise RuntimeError(
+                f"len(phones) != sum(word2ph): {len(phones)} vs {total}"
+            )
 
         missing = [p for p in phones if p not in symset]
         print("Missing in symbols2:", missing)
         if missing:
-            raise RuntimeError(f"Найдено {len(missing)} токенов вне symbols2: {set(missing)}")
+            raise RuntimeError(f"Found {len(missing)} tokens outside symbols2: {set(missing)}")
 
         unk = [p for p in phones if p == "UNK"]
         print("UNK tokens:", unk)
+
+        stress_positions = [i for i, p in enumerate(phones) if p == "RU_STRESS"]
+        print("RU_STRESS positions:", stress_positions)
 
         print("-" * 80)
 
