@@ -15,15 +15,16 @@ tokenizer = None
 bert_model = None
 import torch
 
-is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
-version = os.environ.get("version", None)
-use_ru_bert = is_ru_bert_enabled()
 import traceback
 import os.path
 from text.cleaner import clean_text
 from text.ru_bert import get_ru_bert_feature, is_ru_bert_enabled, resolve_ru_bert_path
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from tools.my_utils import clean_path
+
+is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
+version = os.environ.get("version", None)
+use_ru_bert = is_ru_bert_enabled()
 
 # inp_text=sys.argv[1]
 # inp_wav_dir=sys.argv[2]
