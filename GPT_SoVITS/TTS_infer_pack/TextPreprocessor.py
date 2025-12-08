@@ -157,6 +157,9 @@ class TextPreprocessor:
             elif language == "en":
                 langlist.append("en")
                 textlist.append(text)
+            elif language == "ru":
+                langlist.append("ru")
+                textlist.append(text)
             elif language == "auto":
                 for tmp in LangSegmenter.getTexts(text):
                     langlist.append(tmp["lang"])
