@@ -624,6 +624,7 @@ process_name_gpt = i18n("GPT训练")
 
 
 def open1Bb(
+    version,
     batch_size,
     total_epoch,
     exp_name,
@@ -2027,6 +2028,7 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
             button1Bb_open.click(
                 open1Bb,
                 [
+                    version_checkbox,
                     batch_size1Bb,
                     total_epoch1Bb,
                     exp_name,
