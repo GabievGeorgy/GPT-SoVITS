@@ -43,8 +43,6 @@ def savee(ckpt, name, epoch, steps, hps, model_version=None, lora_rank=None):
         opt = OrderedDict()
         opt["weight"] = {}
         for key in ckpt.keys():
-            if "enc_q" in key:
-                continue
             opt["weight"][key] = ckpt[key].half()
         opt["config"] = hps
         opt["info"] = "%sepoch_%siteration" % (epoch, steps)
