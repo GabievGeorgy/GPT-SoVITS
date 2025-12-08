@@ -48,6 +48,7 @@ SoVITS_weight_root = [
     "SoVITS_weights_v4",
     "SoVITS_weights_v2Pro",
     "SoVITS_weights_v2ProPlus",
+    "SoVITS_weights_v2ProPlus_finetune",
 ]
 GPT_weight_root = [
     "GPT_weights",
@@ -56,6 +57,7 @@ GPT_weight_root = [
     "GPT_weights_v4",
     "GPT_weights_v2Pro",
     "GPT_weights_v2ProPlus",
+    "GPT_weights_v2ProPlus_finetune",
 ]
 SoVITS_weight_version2root = {
     "v1": "SoVITS_weights",
@@ -65,6 +67,9 @@ SoVITS_weight_version2root = {
     "v2Pro": "SoVITS_weights_v2Pro",
     "v2ProPlus": "SoVITS_weights_v2ProPlus",
 }
+SoVITS_weight_finetune_version2root = {
+    "v2ProPlus": "SoVITS_weights_v2ProPlus_finetune",
+}
 GPT_weight_version2root = {
     "v1": "GPT_weights",
     "v2": "GPT_weights_v2",
@@ -72,6 +77,9 @@ GPT_weight_version2root = {
     "v4": "GPT_weights_v4",
     "v2Pro": "GPT_weights_v2Pro",
     "v2ProPlus": "GPT_weights_v2ProPlus",
+}
+GPT_weight_finetune_version2root = {
+    "v2ProPlus": "GPT_weights_v2ProPlus_finetune",
 }
 
 

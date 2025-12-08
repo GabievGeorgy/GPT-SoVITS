@@ -194,6 +194,8 @@ from config import (
     GPT_weight_version2root,
     SoVITS_weight_root,
     SoVITS_weight_version2root,
+    GPT_weight_finetune_version2root,
+    SoVITS_weight_finetune_version2root,
     change_choices,
     get_weights_names,
 )
@@ -522,6 +524,7 @@ def open1Ba(
     exp_name,
     text_low_lr_rate,
     if_save_latest,
+    save_finetune_weights1Ba,
     if_save_every_weights,
     save_every_epoch,
     gpu_numbers1Ba,
@@ -554,14 +557,18 @@ def open1Ba(
         data["train"]["pretrained_s2G"] = pretrained_s2G
         data["train"]["pretrained_s2D"] = pretrained_s2D
         data["train"]["if_save_latest"] = if_save_latest
-        data["train"]["if_save_every_weights"] = if_save_every_weights
+        data["train"]["if_save_every_weights"] = if_save_every_weights or save_finetune_weights1Ba
         data["train"]["save_every_epoch"] = save_every_epoch
         data["train"]["gpu_numbers"] = gpu_numbers1Ba
         data["train"]["grad_ckpt"] = if_grad_ckpt
         data["train"]["lora_rank"] = lora_rank
         data["model"]["version"] = version
         data["data"]["exp_dir"] = data["s2_ckpt_dir"] = s2_dir
-        data["save_weight_dir"] = SoVITS_weight_version2root[version]
+        data["save_weight_dir"] = (
+            SoVITS_weight_finetune_version2root.get(version, SoVITS_weight_version2root[version])
+            if save_finetune_weights1Ba
+            else SoVITS_weight_version2root[version]
+        )
         data["name"] = exp_name
         data["version"] = version
         tmp_config_path = "%s/tmp_s2.json" % tmp
@@ -622,6 +629,7 @@ def open1Bb(
     exp_name,
     if_dpo,
     if_save_latest,
+    save_finetune_weights1Bb,
     if_save_every_weights,
     save_every_epoch,
     gpu_numbers,
@@ -646,10 +654,14 @@ def open1Bb(
         data["train"]["epochs"] = total_epoch
         data["pretrained_s1"] = pretrained_s1
         data["train"]["save_every_n_epoch"] = save_every_epoch
-        data["train"]["if_save_every_weights"] = if_save_every_weights
+        data["train"]["if_save_every_weights"] = if_save_every_weights or save_finetune_weights1Bb
         data["train"]["if_save_latest"] = if_save_latest
         data["train"]["if_dpo"] = if_dpo
-        data["train"]["half_weights_save_dir"] = GPT_weight_version2root[version]
+        data["train"]["half_weights_save_dir"] = (
+            GPT_weight_finetune_version2root.get(version, GPT_weight_version2root[version])
+            if save_finetune_weights1Bb
+            else GPT_weight_version2root[version]
+        )
         data["train"]["exp_name"] = exp_name
         data["train_semantic_path"] = "%s/6-name2semantic.tsv" % s1_dir
         data["train_phoneme_path"] = "%s/2-name2text.txt" % s1_dir
@@ -1817,6 +1829,12 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
                                     interactive=True,
                                     show_label=True,
                                 )
+                                save_finetune_weights1Ba = gr.Checkbox(
+                                    label=i18n("Save finetuneable FP16 weights to dedicated folder"),
+                                    value=False,
+                                    interactive=True,
+                                    show_label=True,
+                                )
                                 if_save_every_weights = gr.Checkbox(
                                     label=i18n("是否在每次保存时间点将最终小模型保存至weights文件夹"),
                                     value=True,
@@ -1886,6 +1904,12 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
                                 if_save_latest1Bb = gr.Checkbox(
                                     label=i18n("是否仅保存最新的权重文件以节省硬盘空间"),
                                     value=True,
+                                    interactive=True,
+                                    show_label=True,
+                                )
+                                save_finetune_weights1Bb = gr.Checkbox(
+                                    label=i18n("Save finetuneable FP16 weights to dedicated folder"),
+                                    value=False,
                                     interactive=True,
                                     show_label=True,
                                 )
@@ -1989,6 +2013,7 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
                     exp_name,
                     text_low_lr_rate,
                     if_save_latest,
+                    save_finetune_weights1Ba,
                     if_save_every_weights,
                     save_every_epoch,
                     gpu_numbers1Ba,
@@ -2007,6 +2032,7 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
                     exp_name,
                     if_dpo,
                     if_save_latest1Bb,
+                    save_finetune_weights1Bb,
                     if_save_every_weights1Bb,
                     save_every_epoch1Bb,
                     gpu_numbers1Bb,
