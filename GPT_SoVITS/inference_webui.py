@@ -907,8 +907,7 @@ def get_tts_wav(
                     temperature=temperature,
                     early_stop_num=hz * max_sec,
                 )
-                pred_semantic = pred_semantic if idx == 0 else pred_semantic[:, -idx:]
-                pred_semantic = pred_semantic.unsqueeze(0)
+                pred_semantic = pred_semantic[:, -idx:].unsqueeze(0)
                 cache[i_text] = pred_semantic
         t3 = ttime()
         is_v2pro = model_version in {"v2Pro", "v2ProPlus"}
