@@ -46,13 +46,16 @@ def savee(ckpt, name, epoch, steps, hps, model_version=None, lora_rank=None):
             opt["weight"][key] = ckpt[key].half()
         opt["config"] = hps
         opt["info"] = "%sepoch_%siteration" % (epoch, steps)
+        save_path = "%s/%s.pth" % (hps.save_weight_dir, name)
+        finetune_dir = getattr(hps, "save_weight_dir", "")
+        is_finetune_target = isinstance(finetune_dir, str) and "finetune" in finetune_dir
         if lora_rank:
             opt["lora_rank"] = lora_rank
-            my_save2(opt, "%s/%s.pth" % (hps.save_weight_dir, name), model_version)
-        elif model_version != None and "Pro" in model_version:
-            my_save2(opt, "%s/%s.pth" % (hps.save_weight_dir, name), model_version)
+            my_save2(opt, save_path, model_version)
+        elif model_version is not None and "Pro" in model_version and not is_finetune_target:
+            my_save2(opt, save_path, model_version)
         else:
-            my_save(opt, "%s/%s.pth" % (hps.save_weight_dir, name))
+            my_save(opt, save_path)
         return "Success."
     except:
         return traceback.format_exc()
