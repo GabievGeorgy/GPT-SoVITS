@@ -319,9 +319,11 @@ def change_sovits_weights(sovits_path, prompt_language=None, text_language=None)
             **hps.model,
         )
     if "pretrained" not in sovits_path:
+        # enc_q is not used during inference; drop its weights to avoid load_state_dict warnings after removing the module
+        dict_s2["weight"] = {k: v for k, v in dict_s2["weight"].items() if not k.startswith("enc_q.")}
         try:
             del vq_model.enc_q
-        except:
+        except Exception:
             pass
     if is_half == True:
         vq_model = vq_model.half().to(device)
