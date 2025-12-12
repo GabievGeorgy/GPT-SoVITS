@@ -212,9 +212,7 @@ def stress_pipeline(text: str) -> List[Tuple[str, Optional[int]]]:
     if not norm_text:
         return []
 
-    norm_text_for_stress = norm_text.replace("-", " ")
-
-    stressed = run_silero_stress(norm_text_for_stress)
+    stressed = run_silero_stress(norm_text)
     if not stressed:
         return []
 

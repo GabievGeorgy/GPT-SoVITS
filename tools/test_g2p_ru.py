@@ -7,9 +7,22 @@ sys.path.append(str(ROOT / "GPT_SoVITS"))
 
 from GPT_SoVITS.text.cleaner import clean_text
 from GPT_SoVITS.text import symbols2 as symbols_mod
+from GPT_SoVITS.text.ru_normalizer import normalize_ru
+
+
+def check_normalizer_dash_and_ellipsis():
+    text = "молотые зерна - это мука... ещё—пример"
+    norm = normalize_ru(text)
+    assert "..." in norm, norm
+    assert "—" not in norm, norm  # typographic dash must be normalized to '-'
+    parts = norm.split()
+    assert "-" in parts, norm  # spaced dash kept for pause
+    assert any(tok.endswith("...") for tok in parts), norm  # trailing ellipsis preserved as three dots
 
 
 def main():
+    check_normalizer_dash_and_ellipsis()
+
     samples = [
         "Привет, мир! Как дела?",
         "123 руб. ул. Ленина, д. 5.",
@@ -17,6 +30,7 @@ def main():
         "Мука и мука.",
         "На горе стоит замок. Замок старый.",
         "В замке висел старый замок.",
+        "молотые зерна— это мука... ещё пример",
     ]
 
     symset = set(symbols_mod.symbols)
