@@ -120,6 +120,10 @@ for line in lines[int(i_part) :: int(all_parts)]:
         else:
             wav_path = wav_name
             wav_name = os.path.basename(wav_name)
+            if inp_text:
+                list_dir = os.path.dirname(os.path.abspath(inp_text))
+                if not os.path.isabs(wav_path):
+                    wav_path = os.path.join(list_dir, wav_path)
         name2go(wav_name, wav_path)
     except:
         print(line, traceback.format_exc())
