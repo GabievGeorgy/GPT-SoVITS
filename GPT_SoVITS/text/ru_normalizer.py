@@ -7,16 +7,16 @@ RE_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 # Map common dash characters to ASCII hyphen-minus.
 _DASH_TRANSLATION = {
     ord("-"): "-",
-    ord("\u2010"): "-",
-    ord("\u2011"): "-",
-    ord("\u2012"): "-",
-    ord("\u2013"): "-",
-    ord("\u2014"): "-",
-    ord("\u2015"): "-",
-    ord("\u2212"): "-",
+    ord("\u2010"): "-",  # hyphen
+    ord("\u2011"): "-",  # non-breaking hyphen
+    ord("\u2012"): "-",  # figure dash
+    ord("\u2013"): "-",  # en dash
+    ord("\u2014"): "-",  # em dash
+    ord("\u2015"): "-",  # horizontal bar
+    ord("\u2212"): "-",  # minus sign
 }
 
-# Precompile word-char class that includes Cyrillic for dash spacing.
+# Word characters (Latin + Cyrillic) for hyphen protection.
 _WORD = r"0-9A-Za-z\u0400-\u04FF"
 # Allowable chars after cleanup: digits, Latin/Cyrillic letters, basic punct.
 _CLEAN_RE = re.compile(rf"[^{_WORD},.!? -]")
@@ -48,8 +48,11 @@ def _normalize_dashes_and_ellipsis(text: str) -> str:
     - Ensure standalone dashes (not inside word-word) are spaced as pauses.
     """
     text = text.translate(_DASH_TRANSLATION)
+
+    # Normalize both "..." and Unicode ellipsis (U+2026) to "...".
     text = re.sub(r"\.{3,}", "...", text)
-    text = re.sub(r"…+", "...", text)
+    text = re.sub(r"\u2026+", "...", text)
+
     placeholder = "__HYPHEN__"
     # Protect true hyphenated words (word-word) so we don't force a pause there.
     text = re.sub(rf"([{_WORD}])-+(?=[{_WORD}])", rf"\1{placeholder}", text)
