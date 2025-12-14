@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_TEMPLATE_PATH="/etc/systemd/system/gptsovits-tunnel@.service"
+CONF_DIR="/etc/gptsovits-tunnel"
+
+usage() {
+  cat <<'EOF'
+gptsovits-tunnel: manage persistent SSH tunnels (systemd + autossh)
+
+Commands:
+  add NAME --host HOST --port PORT --user USER --key KEY_PATH --local LOCAL_PORT --remote REMOTE_PORT
+  rm NAME
+  ls
+  status [NAME]
+  logs NAME
+
+Example:
+  sudo bash deploy/ssh-tunnel/gptsovits-tunnel add vast1 --host 171.226.152.139 --port 31036 --user root --key /root/.ssh/vast_key --local 18081 --remote 9880
+
+Then call the API via:
+  http://127.0.0.1:18081/tts
+EOF
+}
+
+require_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "ERROR: run as root (use sudo)" >&2
+    exit 1
+  fi
+}
+
+install_template_if_missing() {
+  if [[ -f "${SERVICE_TEMPLATE_PATH}" ]]; then
+    return 0
+  fi
+  local repo_template="deploy/ssh-tunnel/gptsovits-tunnel@.service"
+  if [[ ! -f "${repo_template}" ]]; then
+    echo "ERROR: cannot find ${repo_template} (run from repo root)" >&2
+    exit 1
+  fi
+  install -m 0644 "${repo_template}" "${SERVICE_TEMPLATE_PATH}"
+  systemctl daemon-reload
+}
+
+ensure_autossh_installed() {
+  if command -v autossh >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "ERROR: autossh not found. Install it: sudo apt-get install -y autossh" >&2
+  exit 1
+}
+
+add_tunnel() {
+  local name="$1"
+  shift
+
+  local ssh_host="" ssh_port="" ssh_user="" ssh_key="" local_port="" remote_port=""
+  local remote_host="127.0.0.1"
+  local server_alive_interval="30"
+  local server_alive_count_max="3"
+  local strict_host_key_checking="accept-new"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --host) ssh_host="$2"; shift 2 ;;
+      --port) ssh_port="$2"; shift 2 ;;
+      --user) ssh_user="$2"; shift 2 ;;
+      --key) ssh_key="$2"; shift 2 ;;
+      --local) local_port="$2"; shift 2 ;;
+      --remote) remote_port="$2"; shift 2 ;;
+      --remote-host) remote_host="$2"; shift 2 ;;
+      --alive-interval) server_alive_interval="$2"; shift 2 ;;
+      --alive-count) server_alive_count_max="$2"; shift 2 ;;
+      --strict-host-key-checking) strict_host_key_checking="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "ERROR: unknown arg: $1" >&2; exit 2 ;;
+    esac
+  done
+
+  if [[ -z "${ssh_host}" || -z "${ssh_port}" || -z "${ssh_user}" || -z "${ssh_key}" || -z "${local_port}" || -z "${remote_port}" ]]; then
+    echo "ERROR: missing required args" >&2
+    usage
+    exit 2
+  fi
+  if [[ ! -f "${ssh_key}" ]]; then
+    echo "ERROR: SSH key not found: ${ssh_key}" >&2
+    exit 2
+  fi
+
+  mkdir -p "${CONF_DIR}"
+  local conf_path="${CONF_DIR}/${name}.conf"
+  cat >"${conf_path}" <<EOF
+SSH_HOST=${ssh_host}
+SSH_PORT=${ssh_port}
+SSH_USER=${ssh_user}
+SSH_KEY_PATH=${ssh_key}
+LOCAL_PORT=${local_port}
+REMOTE_HOST=${remote_host}
+REMOTE_PORT=${remote_port}
+SERVER_ALIVE_INTERVAL=${server_alive_interval}
+SERVER_ALIVE_COUNT_MAX=${server_alive_count_max}
+STRICT_HOST_KEY_CHECKING=${strict_host_key_checking}
+EOF
+  chmod 0600 "${conf_path}"
+
+  systemctl enable --now "gptsovits-tunnel@${name}"
+  systemctl status --no-pager "gptsovits-tunnel@${name}" || true
+}
+
+rm_tunnel() {
+  local name="$1"
+  systemctl disable --now "gptsovits-tunnel@${name}" || true
+  rm -f "${CONF_DIR}/${name}.conf" || true
+}
+
+ls_tunnels() {
+  ls -1 "${CONF_DIR}" 2>/dev/null | sed -n 's/\.conf$//p' || true
+}
+
+status_tunnel() {
+  local name="${1:-}"
+  if [[ -z "${name}" ]]; then
+    systemctl list-units --all 'gptsovits-tunnel@*' --no-pager || true
+    return 0
+  fi
+  systemctl status --no-pager "gptsovits-tunnel@${name}" || true
+}
+
+logs_tunnel() {
+  local name="$1"
+  journalctl -u "gptsovits-tunnel@${name}" -f
+}
+
+main() {
+  if [[ $# -lt 1 ]]; then
+    usage
+    exit 2
+  fi
+
+  local cmd="$1"
+  shift
+
+  case "${cmd}" in
+    add)
+      require_root
+      ensure_autossh_installed
+      install_template_if_missing
+      if [[ $# -lt 1 ]]; then usage; exit 2; fi
+      add_tunnel "$@"
+      ;;
+    rm)
+      require_root
+      if [[ $# -ne 1 ]]; then usage; exit 2; fi
+      rm_tunnel "$1"
+      ;;
+    ls)
+      ls_tunnels
+      ;;
+    status)
+      status_tunnel "${1:-}"
+      ;;
+    logs)
+      if [[ $# -ne 1 ]]; then usage; exit 2; fi
+      logs_tunnel "$1"
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    *)
+      echo "ERROR: unknown command: ${cmd}" >&2
+      usage
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
+

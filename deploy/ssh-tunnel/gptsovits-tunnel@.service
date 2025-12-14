@@ -1,0 +1,23 @@
+[Unit]
+Description=GPT-SoVITS SSH tunnel (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AUTOSSH_GATETIME=0
+EnvironmentFile=-/etc/gptsovits-tunnel/%i.conf
+ExecStart=/usr/bin/autossh -M 0 -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=${SERVER_ALIVE_INTERVAL} \
+  -o ServerAliveCountMax=${SERVER_ALIVE_COUNT_MAX} \
+  -o StrictHostKeyChecking=${STRICT_HOST_KEY_CHECKING} \
+  -i ${SSH_KEY_PATH} \
+  -p ${SSH_PORT} \
+  -L 127.0.0.1:${LOCAL_PORT}:${REMOTE_HOST}:${REMOTE_PORT} \
+  ${SSH_USER}@${SSH_HOST}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
