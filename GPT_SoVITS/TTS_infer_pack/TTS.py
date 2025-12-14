@@ -526,6 +526,24 @@ class TTS:
         # dict_s2 = torch.load(weights_path, map_location=self.configs.device,weights_only=False)
         dict_s2 = load_sovits_new(weights_path)
         hps = dict_s2["config"]
+        try:
+            model_cfg = hps["model"]
+        except Exception:
+            model_cfg = getattr(hps, "model", None)
+
+        if isinstance(model_cfg, dict):
+            config_model_version = model_cfg.get("version")
+        else:
+            config_model_version = getattr(model_cfg, "version", None)
+        if config_model_version in ["v2Pro", "v2ProPlus"]:
+            model_version = config_model_version
+        elif any(k.startswith("sv_emb.") for k in dict_s2.get("weight", {}).keys()) or (
+            "ge_to512.weight" in dict_s2.get("weight", {})
+        ):
+            model_version = "v2ProPlus" if ("Plus" in weights_path or "ProPlus" in weights_path) else "v2Pro"
+
+        if "Pro" in model_version:
+            self.init_sv_model()
         hps["model"]["semantic_frame_rate"] = "25hz"
         if "enc_p.text_embedding.weight" not in dict_s2["weight"]:
             hps["model"]["version"] = "v2"  # v3model,v2sybomls
