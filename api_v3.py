@@ -214,9 +214,10 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
     prompt_text: str = req.get("prompt_text", "") or ""
     prompt_lang: str = (req.get("prompt_lang", "") or "").lower()
 
-    top_k: int = int(req.get("top_k", 5))
-    top_p: float = float(req.get("top_p", 1))
-    temperature: float = float(req.get("temperature", 1))
+    # Match WebUI defaults (more stable endings vs. 5/1/1).
+    top_k: int = int(req.get("top_k", 20))
+    top_p: float = float(req.get("top_p", 0.6))
+    temperature: float = float(req.get("temperature", 0.6))
     repetition_penalty: float = float(req.get("repetition_penalty", 1.35))
     speed_factor: float = float(req.get("speed_factor", 1.0))
     fragment_interval: float = float(req.get("fragment_interval", 0.3))
@@ -249,6 +250,7 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
         tts.prompt_cache["norm_text"] = norm_text
 
     # Segment and extract features for target text
+    text = _ensure_punct_tail(text, text_lang)
     segments = tts.text_preprocessor.preprocess(text, text_lang, text_split_method, tts.configs.version)
     if not segments:
         return 16000, np.zeros(int(16000), dtype=np.int16)
@@ -346,9 +348,9 @@ class TTS_Request(BaseModel):
     aux_ref_audio_paths: list = None
     prompt_lang: str = None
     prompt_text: str = ""
-    top_k: int = 5
-    top_p: float = 1
-    temperature: float = 1
+    top_k: int = 20
+    top_p: float = 0.6
+    temperature: float = 0.6
     text_split_method: str = "cut5"
     batch_size: int = 1
     batch_threshold: float = 0.75
@@ -457,9 +459,9 @@ async def tts_get_endpoint(
     aux_ref_audio_paths: list = None,
     prompt_lang: str = None,
     prompt_text: str = "",
-    top_k: int = 5,
-    top_p: float = 1,
-    temperature: float = 1,
+    top_k: int = 20,
+    top_p: float = 0.6,
+    temperature: float = 0.6,
     text_split_method: str = "cut5",
     batch_size: int = 1,
     batch_threshold: float = 0.75,
