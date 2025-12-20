@@ -1358,6 +1358,11 @@ class TTS:
                                     all_pred_semantic, _batch_phones, refer_audio_spec, speed=speed_factor, sv_emb=sv_emb
                                 ).detach()[0, 0, :]
 
+                            total_audio_len = int(_batch_audio_fragment.shape[0])
+                            if len(audio_frag_end_idx) > 0:
+                                audio_frag_end_idx = [min(int(x), total_audio_len) for x in audio_frag_end_idx]
+                                audio_frag_end_idx[-1] = total_audio_len
+
                             audio_frag_end_idx.insert(0, 0)
                             batch_audio_fragment = [
                                 _batch_audio_fragment[audio_frag_end_idx[i - 1] : audio_frag_end_idx[i]]
