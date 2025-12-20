@@ -223,10 +223,10 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
     prompt_text: str = req.get("prompt_text", "") or ""
     prompt_lang: str = (req.get("prompt_lang", "") or "").lower()
 
-    # Match WebUI defaults (more stable endings vs. 5/1/1).
-    top_k: int = int(req.get("top_k", 20))
-    top_p: float = float(req.get("top_p", 0.6))
-    temperature: float = float(req.get("temperature", 0.6))
+    # Match WebUI slider defaults.
+    top_k: int = int(req.get("top_k", 15))
+    top_p: float = float(req.get("top_p", 1))
+    temperature: float = float(req.get("temperature", 1))
     repetition_penalty: float = float(req.get("repetition_penalty", 1.35))
     speed_factor: float = float(req.get("speed_factor", 1.0))
     fragment_interval: float = float(req.get("fragment_interval", 0.3))
@@ -279,7 +279,9 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
             # audio_tensor can be None if not v2pro, but guarded above
             sv_emb.append(tts.sv_model.compute_embedding3(audio_tensor))
 
-    prompt = None if no_prompt_text else tts.prompt_cache["prompt_semantic"].unsqueeze(0).to(device)
+    # Always pass the prompt semantic tokens extracted from the reference audio.
+    # `prompt_text` only affects BERT/phones concatenation; it should NOT disable the semantic prompt.
+    prompt = tts.prompt_cache["prompt_semantic"].unsqueeze(0).to(device)
 
     fade_ms = float(req.get("fade_ms", 12.0))
     fade_samples = int(output_sr * fade_ms / 1000.0)
@@ -357,7 +359,7 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
 
         seg_audio = _linear_fade_in_out(seg_audio, fade_samples)
         if debug:
-            seg_text = (seg.get("text", "") or "").replace("\n", "\\n")
+            seg_text = (seg.get("norm_text", "") or "").replace("\n", "\\n")
             print(
                 f"[api_v3][seg] i={seg_i} phones={len(seg_phones)} audio_samples={int(seg_audio.shape[0])} "
                 f"sec={seg_audio.shape[0] / float(output_sr):.3f} text='{seg_text}'"
@@ -388,9 +390,9 @@ class TTS_Request(BaseModel):
     aux_ref_audio_paths: list = None
     prompt_lang: str = None
     prompt_text: str = ""
-    top_k: int = 20
-    top_p: float = 0.6
-    temperature: float = 0.6
+    top_k: int = 15
+    top_p: float = 1
+    temperature: float = 1
     text_split_method: str = "cut5"
     batch_size: int = 1
     batch_threshold: float = 0.75
@@ -515,9 +517,9 @@ async def tts_get_endpoint(
     aux_ref_audio_paths: list = None,
     prompt_lang: str = None,
     prompt_text: str = "",
-    top_k: int = 20,
-    top_p: float = 0.6,
-    temperature: float = 0.6,
+    top_k: int = 15,
+    top_p: float = 1,
+    temperature: float = 1,
     text_split_method: str = "cut5",
     batch_size: int = 1,
     batch_threshold: float = 0.75,
