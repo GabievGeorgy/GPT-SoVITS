@@ -279,9 +279,10 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
             # audio_tensor can be None if not v2pro, but guarded above
             sv_emb.append(tts.sv_model.compute_embedding3(audio_tensor))
 
-    # Always pass the prompt semantic tokens extracted from the reference audio.
-    # `prompt_text` only affects BERT/phones concatenation; it should NOT disable the semantic prompt.
-    prompt = tts.prompt_cache["prompt_semantic"].unsqueeze(0).to(device)
+    # Match upstream behavior:
+    # - if `prompt_text` is provided, use prompt semantic tokens as AR prefix (best similarity/continuity)
+    # - if `prompt_text` is empty, run AR in ref_free mode (prompt=None) to avoid a semantic/text mismatch.
+    prompt = None if no_prompt_text else tts.prompt_cache["prompt_semantic"].unsqueeze(0).to(device)
 
     fade_ms = float(req.get("fade_ms", 12.0))
     fade_samples = int(output_sr * fade_ms / 1000.0)
@@ -310,7 +311,8 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
         with torch.no_grad():
             # The AR model is stochastic; sometimes it samples EOS too early (especially on RU).
             # Retry a few times and pick the longest semantic continuation for this segment.
-            attempt_idxs: List[int] = []
+            attempt_stats: List[tuple[int, int]] = []  # (idx, semantic_len)
+            best_len = -1
             best_idx = -1
             best_semantic: Optional[torch.Tensor] = None
             for attempt in range(max_attempts):
@@ -326,20 +328,23 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
                     repetition_penalty=repetition_penalty,
                 )
                 idx = int(idx)
-                attempt_idxs.append(idx)
-                semantic = pred_semantic[:, -idx:].detach()
-                if idx > best_idx:
+                semantic = pred_semantic.detach() if prompt is None else pred_semantic[:, -idx:].detach()
+                semantic_len = int(semantic.shape[1])
+                attempt_stats.append((idx, semantic_len))
+                if semantic_len > best_len or (semantic_len == best_len and idx > best_idx):
+                    best_len = semantic_len
                     best_idx = idx
                     best_semantic = semantic
 
-            if best_semantic is None:
+            if best_semantic is None or best_len <= 0:
                 raise RuntimeError("T2S produced empty semantic tokens")
 
             pred_semantic = best_semantic.unsqueeze(0)
             if debug and max_attempts > 1:
-                tail = best_semantic[0, -min(12, best_idx) :].tolist() if best_idx > 0 else []
+                tail = best_semantic[0, -min(12, best_len) :].tolist() if best_len > 0 else []
                 print(
-                    f"[api_v3][t2s] phones={len(seg_phones)} attempts={attempt_idxs} picked={best_idx} tail={tail}"
+                    f"[api_v3][t2s] phones={len(seg_phones)} prompt={'none' if prompt is None else 'semantic'} "
+                    f"attempts={attempt_stats} picked_idx={best_idx} picked_len={best_len} tail={tail}"
                 )
 
             # Decode this segment only (highest reliability).
@@ -494,6 +499,7 @@ async def _tts_handle(req: dict):
                 "[api_v3][req] "
                 f"id={rid} "
                 f"text_lang={req.get('text_lang')} prompt_lang={req.get('prompt_lang')} "
+                f"prompt_text_len={len((req.get('prompt_text') or '').strip())} "
                 f"cut={req.get('text_split_method')} "
                 f"top_k={req.get('top_k')} top_p={req.get('top_p')} temp={req.get('temperature')} "
                 f"rep_pen={req.get('repetition_penalty')} "
