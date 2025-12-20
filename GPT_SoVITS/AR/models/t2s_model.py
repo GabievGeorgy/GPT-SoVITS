@@ -718,7 +718,8 @@ class Text2SemanticDecoder(nn.Module):
             y = torch.concat([y, samples], dim=1)
 
             ####### 移除batch中已经生成完毕的序列,进一步优化计算量
-            tokens = torch.argmax(logits, dim=-1)
+            # Treat EOS only when the actually sampled token is EOS (avoid argmax-based premature stopping).
+            tokens = samples[:, 0]
             reserved_idx_of_batch_for_y = None
             if (self.EOS in samples[:, 0]) or (self.EOS in tokens):  ###如果生成到EOS，则停止
                 l1 = samples[:, 0] == self.EOS
@@ -729,8 +730,10 @@ class Text2SemanticDecoder(nn.Module):
                 # batch_indexs = torch.tensor(batch_idx_map, device=y.device)[removed_idx_of_batch_for_y]
                 for i in removed_idx_of_batch_for_y:
                     batch_index = batch_idx_map[i]
-                    idx_list[batch_index] = idx
-                    y_list[batch_index] = y[i, :-1]
+                    # Drop the EOS token we just appended.
+                    y_i = y[i, :-1]
+                    y_list[batch_index] = y_i
+                    idx_list[batch_index] = y_i.shape[0] - prefix_len
 
                 batch_idx_map = [batch_idx_map[i] for i in reserved_idx_of_batch_for_y.tolist()]
 
@@ -749,8 +752,9 @@ class Text2SemanticDecoder(nn.Module):
                 stop = True
                 for i, batch_index in enumerate(batch_idx_map):
                     batch_index = batch_idx_map[i]
-                    idx_list[batch_index] = idx
-                    y_list[batch_index] = y[i, :-1]
+                    y_i = y[i]
+                    y_list[batch_index] = y_i
+                    idx_list[batch_index] = y_i.shape[0] - prefix_len
 
             if None not in idx_list:
                 stop = True
@@ -885,7 +889,7 @@ class Text2SemanticDecoder(nn.Module):
         token_counter = 0
         curr_ptr = prefix_len
         for idx in tqdm(range(1500)):
-            token_counter+=1
+            token_counter += 1
             if xy_attn_mask is not None:
                 xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask, None)
             else:
@@ -908,9 +912,11 @@ class Text2SemanticDecoder(nn.Module):
                 print("use early stop num:", early_stop_num)
                 stop = True
 
-            if torch.argmax(logits, dim=-1)[0] == self.EOS or samples[0, 0] == self.EOS:
+            # Only stop on a sampled EOS; argmax(logits)==EOS is not reliable with sampling
+            # and can otherwise truncate the last non-EOS token.
+            if samples[0, 0] == self.EOS:
                 stop = True
-                y=y[:, :-1]
+                y = y[:, :-1]
                 token_counter -= 1
 
             if idx == 1499:
@@ -957,7 +963,7 @@ class Text2SemanticDecoder(nn.Module):
         if not streaming_mode:
             if ref_free:
                 yield y, 0
-            yield y, idx
+            yield y, y.shape[1] - prefix_len
 
 
 
