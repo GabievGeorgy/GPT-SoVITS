@@ -17,6 +17,7 @@ import signal
 import sys
 import threading
 import traceback
+import time
 import wave
 from io import BytesIO
 from typing import Generator, List, Optional, Union
@@ -164,6 +165,7 @@ def _validate_quality_request(req: dict, languages: set) -> Optional[JSONRespons
     prompt_lang: str = req.get("prompt_lang", "")
     media_type: str = req.get("media_type", "wav")
     text_split_method: str = req.get("text_split_method", "cut5")
+    max_attempts = req.get("max_attempts", 3)
 
     streaming_mode = req.get("streaming_mode", False)
     return_fragment = req.get("return_fragment", False)
@@ -184,6 +186,13 @@ def _validate_quality_request(req: dict, languages: set) -> Optional[JSONRespons
         return JSONResponse(status_code=400, content={"message": f"media_type: {media_type} is not supported"})
     if text_split_method not in cut_method_names:
         return JSONResponse(status_code=400, content={"message": f"text_split_method:{text_split_method} is not supported"})
+
+    try:
+        max_attempts = int(max_attempts)
+    except Exception:
+        return JSONResponse(status_code=400, content={"message": "max_attempts must be an integer"})
+    if not (1 <= max_attempts <= 10):
+        return JSONResponse(status_code=400, content={"message": "max_attempts must be in [1, 10]"})
 
     # Quality-first mode: reject streaming/fragment modes explicitly.
     if streaming_mode not in [False, 0, None]:
@@ -222,6 +231,8 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
     speed_factor: float = float(req.get("speed_factor", 1.0))
     fragment_interval: float = float(req.get("fragment_interval", 0.3))
     text_split_method: str = req.get("text_split_method", "cut5")
+    max_attempts: int = int(req.get("max_attempts", 3))
+    debug: bool = bool(req.get("debug", False))
 
     # Reference audio + prompt semantic
     tts.set_ref_audio(ref_audio_path)
@@ -277,7 +288,7 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
 
     all_audio: np.ndarray = np.zeros(0, dtype=np.float32)
 
-    for seg in segments:
+    for seg_i, seg in enumerate(segments):
         seg_phones: List[int] = seg["phones"]
         seg_bert = seg["bert_features"]
 
@@ -295,18 +306,39 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
         all_phoneme_len = torch.tensor([all_phoneme_ids.shape[-1]]).to(device)
 
         with torch.no_grad():
-            pred_semantic, idx = tts.t2s_model.model.infer_panel(
-                all_phoneme_ids,
-                all_phoneme_len,
-                prompt,
-                all_bert,
-                top_k=top_k,
-                top_p=top_p,
-                temperature=temperature,
-                early_stop_num=int(tts.configs.hz * tts.configs.max_sec),
-                repetition_penalty=repetition_penalty,
-            )
-            pred_semantic = pred_semantic[:, -idx:].unsqueeze(0)
+            # The AR model is stochastic; sometimes it samples EOS too early (especially on RU).
+            # Retry a few times and pick the longest semantic continuation for this segment.
+            attempt_idxs: List[int] = []
+            best_idx = -1
+            best_semantic: Optional[torch.Tensor] = None
+            for attempt in range(max_attempts):
+                pred_semantic, idx = tts.t2s_model.model.infer_panel(
+                    all_phoneme_ids,
+                    all_phoneme_len,
+                    prompt,
+                    all_bert,
+                    top_k=top_k,
+                    top_p=top_p,
+                    temperature=temperature,
+                    early_stop_num=int(tts.configs.hz * tts.configs.max_sec),
+                    repetition_penalty=repetition_penalty,
+                )
+                idx = int(idx)
+                attempt_idxs.append(idx)
+                semantic = pred_semantic[:, -idx:].detach()
+                if idx > best_idx:
+                    best_idx = idx
+                    best_semantic = semantic
+
+            if best_semantic is None:
+                raise RuntimeError("T2S produced empty semantic tokens")
+
+            pred_semantic = best_semantic.unsqueeze(0)
+            if debug and max_attempts > 1:
+                tail = best_semantic[0, -min(12, best_idx) :].tolist() if best_idx > 0 else []
+                print(
+                    f"[api_v3][t2s] phones={len(seg_phones)} attempts={attempt_idxs} picked={best_idx} tail={tail}"
+                )
 
             # Decode this segment only (highest reliability).
             phones_tensor = torch.LongTensor(seg_phones).to(device).unsqueeze(0)
@@ -324,6 +356,12 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
             seg_audio = seg_audio / max_audio
 
         seg_audio = _linear_fade_in_out(seg_audio, fade_samples)
+        if debug:
+            seg_text = (seg.get("text", "") or "").replace("\n", "\\n")
+            print(
+                f"[api_v3][seg] i={seg_i} phones={len(seg_phones)} audio_samples={int(seg_audio.shape[0])} "
+                f"sec={seg_audio.shape[0] / float(output_sr):.3f} text='{seg_text}'"
+            )
         all_audio = _crossfade_concat(all_audio, seg_audio, fade_samples)
 
         if pause is not None and pause.size > 0:
@@ -335,6 +373,8 @@ def _quality_tts(tts: TTS, req: dict) -> tuple[int, np.ndarray]:
         all_audio = all_audio / max_audio
 
     audio_i16 = (all_audio * 32768.0).astype(np.int16)
+    if debug:
+        print(f"[api_v3][out] audio_samples={int(audio_i16.shape[0])} sec={audio_i16.shape[0] / float(output_sr):.3f}")
     return output_sr, audio_i16
 
 
@@ -368,6 +408,10 @@ class TTS_Request(BaseModel):
     min_chunk_length: int = 16
     # v3-only: optional fade control (ms)
     fade_ms: float = 12.0
+    # v3-only: retry AR decoding and pick the longest continuation (quality-first).
+    max_attempts: int = 3
+    # v3-only: print per-request debug information to stdout.
+    debug: bool = False
     # v2 internal option, accepted for strict validation
     return_fragment: bool = False
 
@@ -442,6 +486,18 @@ async def _tts_handle(req: dict):
 
     media_type = req.get("media_type", "wav")
     try:
+        if bool(req.get("debug", False)):
+            rid = f"{int(time.time() * 1000)}-{os.getpid()}"
+            print(
+                "[api_v3][req] "
+                f"id={rid} "
+                f"text_lang={req.get('text_lang')} prompt_lang={req.get('prompt_lang')} "
+                f"cut={req.get('text_split_method')} "
+                f"top_k={req.get('top_k')} top_p={req.get('top_p')} temp={req.get('temperature')} "
+                f"rep_pen={req.get('repetition_penalty')} "
+                f"max_attempts={req.get('max_attempts')} "
+                f"text_len={len((req.get('text') or '').strip())}"
+            )
         with _synth_lock:
             sr, audio_i16 = _quality_tts(tts_pipeline, req)
         audio_bytes = pack_audio(BytesIO(), audio_i16, sr, media_type).getvalue()
@@ -478,6 +534,8 @@ async def tts_get_endpoint(
     overlap_length: int = 2,
     min_chunk_length: int = 16,
     fade_ms: float = 12.0,
+    max_attempts: int = 3,
+    debug: bool = False,
 ):
     req = {
         "text": text,
@@ -505,6 +563,8 @@ async def tts_get_endpoint(
         "overlap_length": int(overlap_length),
         "min_chunk_length": int(min_chunk_length),
         "fade_ms": float(fade_ms),
+        "max_attempts": int(max_attempts),
+        "debug": bool(debug),
         "return_fragment": False,
     }
     return await _tts_handle(req)
