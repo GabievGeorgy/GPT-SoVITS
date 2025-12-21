@@ -10,39 +10,37 @@ opt_dir = os.environ.get("opt_dir")
 pretrained_s2G = os.environ.get("pretrained_s2G")
 s2config_path = os.environ.get("s2config_path")
 
-if os.path.exists(pretrained_s2G):
-    ...
-else:
-    raise FileNotFoundError(pretrained_s2G)
-# version=os.environ.get("version","v2")
-size = os.path.getsize(pretrained_s2G)
-if size < 82978 * 1024:
-    version = "v1"
-elif size < 100 * 1024 * 1024:
-    version = "v2"
-elif size < 103520 * 1024:
-    version = "v1"
-elif size < 700 * 1024 * 1024:
-    version = "v2"
-else:
-    version = "v3"
-import torch
-
-is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
-import traceback
 import sys
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
-import logging
-import utils
-from process_ckpt import load_sovits_new
 
-if version != "v3":
-    from module.models import SynthesizerTrn
-else:
-    from module.models import SynthesizerTrnV3 as SynthesizerTrn
+import logging
+import traceback
+
+import torch
 from tools.my_utils import clean_path
+
+pretrained_s2G = clean_path(pretrained_s2G or "")
+if not pretrained_s2G:
+    raise ValueError("Missing env var: pretrained_s2G")
+
+# Backward-compat: some UI flows accidentally prefix root weight paths with "GPT_SoVITS/".
+if not os.path.exists(pretrained_s2G) and pretrained_s2G.startswith(f"GPT_SoVITS{os.sep}SoVITS_weights"):
+    alt = pretrained_s2G.replace(f"GPT_SoVITS{os.sep}", "", 1)
+    if os.path.exists(alt):
+        pretrained_s2G = alt
+
+if not os.path.exists(pretrained_s2G):
+    raise FileNotFoundError(pretrained_s2G)
+
+is_half = eval(os.environ.get("is_half", "True")) and torch.cuda.is_available()
+
+from config import pretrained_sovits_name
+from process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
+from module.quantize import ResidualVectorQuantizer
+import utils
+from torch import nn
 
 logging.getLogger("numba").setLevel(logging.WARNING)
 # from config import pretrained_s2G
@@ -67,13 +65,31 @@ if os.path.exists(semantic_path) == False:
     else:
         device = "cpu"
     hps = utils.get_hparams_from_file(s2config_path)
-    vq_model = SynthesizerTrn(
-        hps.data.filter_length // 2 + 1,
-        hps.train.segment_size // hps.data.hop_length,
-        n_speakers=hps.data.n_speakers,
-        version=version,
-        **hps.model,
-    )
+
+    # Detect v3/v4 (new header / lora) correctly. File-size heuristics misclassify v4 as v3.
+    version, model_version, if_lora = get_sovits_version_from_path_fast(pretrained_s2G)
+
+    semantic_frame_rate = getattr(getattr(hps, "model", None), "semantic_frame_rate", None) or "25hz"
+    if semantic_frame_rate not in ("25hz", "50hz"):
+        semantic_frame_rate = "25hz"
+
+    class _SemanticExtractor(nn.Module):
+        def __init__(self, semantic_frame_rate: str):
+            super().__init__()
+            ssl_dim = 768
+            if semantic_frame_rate == "25hz":
+                self.ssl_proj = nn.Conv1d(ssl_dim, ssl_dim, 2, stride=2)
+            else:
+                self.ssl_proj = nn.Conv1d(ssl_dim, ssl_dim, 1, stride=1)
+            self.quantizer = ResidualVectorQuantizer(dimension=ssl_dim, n_q=1, bins=1024)
+
+        @torch.no_grad()
+        def extract_latent(self, x):
+            ssl = self.ssl_proj(x)
+            _, codes, _, _ = self.quantizer(ssl)
+            return codes.transpose(0, 1)
+
+    vq_model = _SemanticExtractor(semantic_frame_rate)
     if is_half == True:
         vq_model = vq_model.half().to(device)
     else:
@@ -81,14 +97,35 @@ if os.path.exists(semantic_path) == False:
     vq_model.eval()
     # utils.load_checkpoint(utils.latest_checkpoint_path(hps.s2_ckpt_dir, "G_*.pth"), vq_model, None, True)
     # utils.load_checkpoint(pretrained_s2G, vq_model, None, True)
-    pretrained = load_sovits_new(pretrained_s2G)
-    pretrained_weight = pretrained.get("weight", {})
-    if "enc_p.text_embedding.weight" not in pretrained_weight:
-        raise RuntimeError(
-            "pretrained_s2G looks incomplete (possibly LoRA-delta-only). "
-            "Semantic extraction requires a full s2G model checkpoint."
-        )
-    print(vq_model.load_state_dict(pretrained_weight, strict=False))
+    def _strip_module_prefix(sd: dict) -> dict:
+        if any(k.startswith("module.") for k in sd.keys()):
+            return {k.replace("module.", "", 1): v for k, v in sd.items()}
+        return sd
+
+    dict_s2 = load_sovits_new(pretrained_s2G)
+    weights = dict_s2.get("weight", {}) or {}
+
+    # For LoRA weights (v3/v4), files may be delta-only. For semantic tokens we only need ssl_proj+quantizer,
+    # so we can safely fall back to the base pretrained weights for those modules.
+    need_prefixes = ("ssl_proj.", "quantizer.")
+    has_needed = any(k.lstrip("module.").startswith(need_prefixes) for k in weights.keys())
+    if (not has_needed) or if_lora:
+        base_path = pretrained_sovits_name.get(model_version) or pretrained_sovits_name.get(version)
+        if base_path and os.path.exists(base_path):
+            base_weights = (load_sovits_new(base_path).get("weight", {}) or {})
+            # Prefer user-provided weights over base.
+            weights = {**base_weights, **weights}
+        elif not has_needed:
+            raise RuntimeError(
+                f"pretrained_s2G does not contain ssl_proj/quantizer weights and base checkpoint is missing: {base_path}"
+            )
+
+    weights = _strip_module_prefix(weights)
+    extractor_weights = {k: v for k, v in weights.items() if k.startswith(need_prefixes)}
+    load_res = vq_model.load_state_dict(extractor_weights, strict=False)
+    if any(k.startswith(need_prefixes) for k in getattr(load_res, "missing_keys", [])):
+        raise RuntimeError(f"Failed to load ssl_proj/quantizer weights: {load_res}")
+    print(load_res)
 
     def name2go(wav_name, lines):
         hubert_path = "%s/%s.pt" % (hubert_dir, wav_name)

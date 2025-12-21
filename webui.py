@@ -1014,6 +1014,7 @@ process_name_1c = i18n("语义Token提取")
 def open1c(version, inp_text, inp_wav_dir, exp_name, gpu_numbers, pretrained_s2G_path):
     global ps1c
     inp_text = my_utils.clean_path(inp_text)
+    pretrained_s2G_path = my_utils.clean_path(pretrained_s2G_path)
     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
     exp_name = exp_name.rstrip(" ")
