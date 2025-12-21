@@ -17,10 +17,14 @@ set -euo pipefail
 #     --exp 500h_v4 \
 #     --list /data/raw/xxx.list \
 #     --wav-dir /data/raw/wavs \
-#     --gpus 0-1-2-3-4-5-6-7 \
+#     --train-gpus 0-1-2-3-4-5-6-7 \
+#     --gpus-1aa 0-0 \
+#     --gpus-1ab 0-0 \
+#     --gpus-1ac 0-0 \
 #     --sovits-epochs 30 \
 #     --gpt-epochs 30 \
-#     --max-checkpoints 10 \
+#     --sovits-save-every 2 \
+#     --gpt-save-every 2 \
 #     --b2-bucket-id <bucketId> \
 #     --b2-prefix checkpoints/500h_v4/
 #
@@ -40,12 +44,19 @@ Required:
   --version <v1|v2|v2Pro|v2ProPlus|v3|v4>
   --exp <experiment_name>
   --list <path/to/data.list>
-  --gpus <gpu-ids-like-0-1-2-3>
+  --train-gpus <gpu-ids-like-0-1-2-3> (must be unique; used for SoVITS+GPT training)
+
+Notes:
+  - For dataset preparation, you can use duplicates like 0-0 to run multiple processes on one GPU.
+  - For training, GPUs must be unique (use --train-gpus 0, not 0-0).
 
 Optional (dataset):
   --wav-dir <dir>              (default: empty, use paths from .list)
   --bert-dir <path>            (default: "", keep repo defaults)
   --ssl-dir <path>             (default: GPT_SoVITS/pretrained_models/chinese-hubert-base)
+  --gpus-1aa <gpu-ids>          (default: 0-0) tokenization + BERT feature extraction
+  --gpus-1ab <gpu-ids>          (default: 0-0) speech SSL feature extraction
+  --gpus-1ac <gpu-ids>          (default: 0-0) semantics token extraction
 
 Optional (weights):
   --pretrained-s2g <path>      (default: based on --version)
@@ -55,10 +66,11 @@ Optional (weights):
 Optional (training):
   --sovits-batch <int>         (default: 11)
   --sovits-epochs <int>        (default: 30)
+  --sovits-save-every <int>    (default: 2) save full checkpoints every N epochs
   --lora-rank <int>            (default: 32) for v3/v4 SoVITS
   --gpt-batch <int>            (default: 13)
   --gpt-epochs <int>           (default: 30)
-  --max-checkpoints <int>      (default: 10) used to auto-set save interval
+  --gpt-save-every <int>       (default: 2) save full checkpoints every N epochs
   --save-infer-weights <0|1>   (default: 1) also saves inference weights in *weights/ folders
 
 Optional (Backblaze B2 upload; requires `b2` CLI configured):
@@ -81,7 +93,10 @@ VERSION=""
 EXP_NAME=""
 LIST_PATH=""
 WAV_DIR=""
-GPUS=""
+TRAIN_GPUS=""
+GPUS_1AA="0-0"
+GPUS_1AB="0-0"
+GPUS_1AC="0-0"
 BERT_DIR=""
 SSL_DIR="GPT_SoVITS/pretrained_models/chinese-hubert-base"
 
@@ -94,7 +109,8 @@ S2_EPOCHS=30
 LORA_RANK=32
 S1_BATCH=13
 S1_EPOCHS=30
-MAX_CKPTS=10
+S2_SAVE_EVERY_EPOCH=2
+S1_SAVE_EVERY_EPOCH=2
 SAVE_INFER_WEIGHTS=1
 
 B2_BUCKET_ID=""
@@ -112,7 +128,10 @@ while [[ $# -gt 0 ]]; do
     --exp) EXP_NAME="${2:-}"; shift 2;;
     --list) LIST_PATH="${2:-}"; shift 2;;
     --wav-dir) WAV_DIR="${2:-}"; shift 2;;
-    --gpus) GPUS="${2:-}"; shift 2;;
+    --train-gpus) TRAIN_GPUS="${2:-}"; shift 2;;
+    --gpus-1aa) GPUS_1AA="${2:-}"; shift 2;;
+    --gpus-1ab) GPUS_1AB="${2:-}"; shift 2;;
+    --gpus-1ac) GPUS_1AC="${2:-}"; shift 2;;
     --bert-dir) BERT_DIR="${2:-}"; shift 2;;
     --ssl-dir) SSL_DIR="${2:-}"; shift 2;;
     --pretrained-s2g) PRETRAINED_S2G="${2:-}"; shift 2;;
@@ -120,10 +139,11 @@ while [[ $# -gt 0 ]]; do
     --pretrained-s1) PRETRAINED_S1="${2:-}"; shift 2;;
     --sovits-batch) S2_BATCH="${2:-}"; shift 2;;
     --sovits-epochs) S2_EPOCHS="${2:-}"; shift 2;;
+    --sovits-save-every) S2_SAVE_EVERY_EPOCH="${2:-}"; shift 2;;
     --lora-rank) LORA_RANK="${2:-}"; shift 2;;
     --gpt-batch) S1_BATCH="${2:-}"; shift 2;;
     --gpt-epochs) S1_EPOCHS="${2:-}"; shift 2;;
-    --max-checkpoints) MAX_CKPTS="${2:-}"; shift 2;;
+    --gpt-save-every) S1_SAVE_EVERY_EPOCH="${2:-}"; shift 2;;
     --save-infer-weights) SAVE_INFER_WEIGHTS="${2:-}"; shift 2;;
     --b2-bucket-id) B2_BUCKET_ID="${2:-}"; shift 2;;
     --b2-prefix) B2_PREFIX="${2:-}"; shift 2;;
@@ -140,7 +160,12 @@ done
 [[ -n "$VERSION" ]] || die "--version is required"
 [[ -n "$EXP_NAME" ]] || die "--exp is required"
 [[ -n "$LIST_PATH" ]] || die "--list is required"
-[[ -n "$GPUS" ]] || die "--gpus is required"
+[[ -n "$TRAIN_GPUS" ]] || die "--train-gpus is required"
+
+[[ -n "$TRAIN_GPUS" ]] || die "--train-gpus resolved empty"
+[[ -n "$GPUS_1AA" ]] || die "--gpus-1aa resolved empty"
+[[ -n "$GPUS_1AB" ]] || die "--gpus-1ab resolved empty"
+[[ -n "$GPUS_1AC" ]] || die "--gpus-1ac resolved empty"
 
 [[ -f "$LIST_PATH" ]] || die ".list file not found: $LIST_PATH"
 if [[ -n "$WAV_DIR" ]]; then
@@ -184,14 +209,12 @@ if [[ -n "$PRETRAINED_S2D" ]]; then
 fi
 [[ -f "$PRETRAINED_S1" ]] || die "pretrained_s1 not found: $PRETRAINED_S1"
 
-S2_SAVE_EVERY_EPOCH=$(( (S2_EPOCHS + MAX_CKPTS - 1) / MAX_CKPTS ))
-S1_SAVE_EVERY_EPOCH=$(( (S1_EPOCHS + MAX_CKPTS - 1) / MAX_CKPTS ))
-[[ "$S2_SAVE_EVERY_EPOCH" -ge 1 ]] || S2_SAVE_EVERY_EPOCH=1
-[[ "$S1_SAVE_EVERY_EPOCH" -ge 1 ]] || S1_SAVE_EVERY_EPOCH=1
+[[ "$S2_SAVE_EVERY_EPOCH" -ge 1 ]] || die "--sovits-save-every must be >= 1"
+[[ "$S1_SAVE_EVERY_EPOCH" -ge 1 ]] || die "--gpt-save-every must be >= 1"
 
 echo "== Config =="
 echo "version=$VERSION exp=$EXP_NAME exp_dir=$EXP_DIR"
-echo "gpus=$GPUS is_half=$IS_HALF"
+echo "gpus_1aa=$GPUS_1AA gpus_1ab=$GPUS_1AB gpus_1ac=$GPUS_1AC train_gpus=$TRAIN_GPUS is_half=$IS_HALF"
 echo "list=$LIST_PATH wav_dir=${WAV_DIR:-<from list>}"
 echo "ssl_dir=$SSL_DIR bert_dir=${BERT_DIR:-<repo default>}"
 echo "pretrained_s2G=$PRETRAINED_S2G pretrained_s2D=${PRETRAINED_S2D:-<none>}"
@@ -203,14 +226,27 @@ fi
 echo "gpt:    batch=$S1_BATCH epochs=$S1_EPOCHS save_every_epoch=$S1_SAVE_EVERY_EPOCH save_infer_weights=$SAVE_INFER_WEIGHTS"
 echo "skip_prepare=$SKIP_PREPARE skip_sovits=$SKIP_SOVITS skip_gpt=$SKIP_GPT"
 
-gpu_csv="${GPUS//-/,}"
-gpu_parts=(${GPUS//-/ })
-parts="${#gpu_parts[@]}"
-[[ "$parts" -ge 1 ]] || die "invalid --gpus: $GPUS"
+train_gpu_csv="${TRAIN_GPUS//-/,}"
+train_gpu_parts=(${TRAIN_GPUS//-/ })
+
+# Training GPUs must be unique; duplicates like 0-0 are useful for prep, but harmful for training.
+declare -A _seen_train=()
+for g in "${train_gpu_parts[@]}"; do
+  if [[ -n "${_seen_train[$g]+x}" ]]; then
+    die "Duplicate GPU id in --train-gpus: '$TRAIN_GPUS' (use 0-0 only for --gpus-1aa/--gpus-1ab/--gpus-1ac)"
+  fi
+  _seen_train[$g]=1
+done
 
 run_parts() {
-  local script="$1"
-  shift
+  local gpus="$1"
+  local script="$2"
+  shift 2
+  local gpu_parts=()
+  IFS="-" read -r -a gpu_parts <<< "$gpus"
+  local parts="${#gpu_parts[@]}"
+  [[ "$parts" -ge 1 ]] || die "invalid gpu list: '$gpus'"
+
   local pids=()
   for ((i=0; i<parts; i++)); do
     (
@@ -234,7 +270,9 @@ run_parts() {
 }
 
 merge_parts() {
-  local pattern="$1" out="$2"
+  local parts="$1"
+  local pattern="$2"
+  local out="$3"
   local tmp_files=()
   for ((i=0; i<parts; i++)); do
     tmp_files+=("$EXP_DIR/${pattern//\{i\}/$i}")
@@ -250,16 +288,17 @@ merge_parts() {
 if [[ "$SKIP_PREPARE" -eq 0 ]]; then
   echo "== Stage 1A: text/phones/bert =="
   export bert_pretrained_dir="$BERT_DIR"
-  run_parts "GPT_SoVITS/prepare_datasets/1-get-text.py"
-  merge_parts "2-name2text-{i}.txt" "2-name2text.txt"
+  run_parts "$GPUS_1AA" "GPT_SoVITS/prepare_datasets/1-get-text.py"
+  IFS="-" read -r -a _g1aa <<< "$GPUS_1AA"
+  merge_parts "${#_g1aa[@]}" "2-name2text-{i}.txt" "2-name2text.txt"
 
   echo "== Stage 1B: ssl/hubert + wav32k =="
   export cnhubert_base_dir="$SSL_DIR"
-  run_parts "GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py"
+  run_parts "$GPUS_1AB" "GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py"
 
   if [[ "$VERSION" == *"Pro"* ]]; then
     echo "== Stage 1B(extra): speaker embedding for Pro* versions =="
-    run_parts "GPT_SoVITS/prepare_datasets/2-get-sv.py"
+    run_parts "$GPUS_1AB" "GPT_SoVITS/prepare_datasets/2-get-sv.py"
   fi
 
   echo "== Stage 1C: semantic tokens =="
@@ -271,12 +310,14 @@ if [[ "$SKIP_PREPARE" -eq 0 ]]; then
       echo "GPT_SoVITS/configs/s2.json"
     fi
   )
-  run_parts "GPT_SoVITS/prepare_datasets/3-get-semantic.py"
+  run_parts "$GPUS_1AC" "GPT_SoVITS/prepare_datasets/3-get-semantic.py"
 
   # Merge semantic parts into 6-name2semantic.tsv (same as webui)
+  IFS="-" read -r -a _g1ac <<< "$GPUS_1AC"
+  parts_1ac="${#_g1ac[@]}"
   {
     echo -e "item_name\tsemantic_audio"
-    for ((i=0; i<parts; i++)); do
+    for ((i=0; i<parts_1ac; i++)); do
       f="$EXP_DIR/6-name2semantic-$i.tsv"
       [[ -f "$f" ]] || die "missing expected output: $f"
       cat "$f"
@@ -297,7 +338,7 @@ S1_CFG="$EXP_DIR/s1_train_config.yaml"
 export VERSION="$VERSION"
 export EXP_NAME="$EXP_NAME"
 export EXP_DIR="$EXP_DIR"
-export GPUS="$GPUS"
+export TRAIN_GPUS="$TRAIN_GPUS"
 export PRETRAINED_S2G="$PRETRAINED_S2G"
 export PRETRAINED_S2D="$PRETRAINED_S2D"
 export PRETRAINED_S1="$PRETRAINED_S1"
@@ -315,11 +356,13 @@ export IS_HALF="$IS_HALF"
 
 "$PYTHON_BIN" - <<PY
 import json, os
+from config import SoVITS_weight_version2root, SoVITS_weight_finetune_version2root
+
 version = os.environ["VERSION"]
 exp_name = os.environ["EXP_NAME"]
 exp_dir = os.environ["EXP_DIR"]
 is_half = os.environ.get("IS_HALF", "True") == "True"
-gpu_numbers = os.environ["GPUS"]
+gpu_numbers = os.environ["TRAIN_GPUS"]
 pretrained_s2G = os.environ["PRETRAINED_S2G"]
 pretrained_s2D = os.environ.get("PRETRAINED_S2D", "")
 batch_size = int(os.environ["S2_BATCH"])
@@ -352,6 +395,16 @@ data["s2_ckpt_dir"] = exp_dir
 data["name"] = exp_name
 data["version"] = version
 
+# Save small weights to a "weights" folder. For v2ProPlus, always use the finetune folder
+# to ensure the saved weights are loadable for later finetuning (torch.save format).
+if version == "v2ProPlus":
+    weight_root = SoVITS_weight_finetune_version2root.get(version, SoVITS_weight_version2root.get(version, "SoVITS_weights"))
+else:
+    weight_root = SoVITS_weight_version2root.get(version, "SoVITS_weights")
+
+os.makedirs(weight_root, exist_ok=True)
+data["save_weight_dir"] = weight_root
+
 # Match webui behavior for where it saves inference weights
 if save_infer:
     # fallback mapping lives in webui; we just keep default weight dir field if present
@@ -365,11 +418,13 @@ PY
 
 "$PYTHON_BIN" - <<PY
 import os, yaml
+from config import GPT_weight_version2root, GPT_weight_finetune_version2root
+
 version = os.environ["VERSION"]
 exp_name = os.environ["EXP_NAME"]
 exp_dir = os.environ["EXP_DIR"]
 is_half = os.environ.get("IS_HALF", "True") == "True"
-gpu_numbers = os.environ["GPUS"]
+gpu_numbers = os.environ["TRAIN_GPUS"]
 pretrained_s1 = os.environ["PRETRAINED_S1"]
 batch_size = int(os.environ["S1_BATCH"])
 epochs = int(os.environ["S1_EPOCHS"])
@@ -392,6 +447,14 @@ data["train"]["if_save_every_weights"] = bool(save_infer)
 data["train"]["if_save_latest"] = False
 data["train"]["if_dpo"] = False
 data["train"]["exp_name"] = exp_name
+
+if version == "v2ProPlus":
+    gpt_root = GPT_weight_finetune_version2root.get(version, GPT_weight_version2root.get(version, "GPT_weights"))
+else:
+    gpt_root = GPT_weight_version2root.get(version, "GPT_weights")
+
+os.makedirs(gpt_root, exist_ok=True)
+data["train"]["half_weights_save_dir"] = gpt_root
 
 data["train_semantic_path"] = f"{exp_dir}/6-name2semantic.tsv"
 data["train_phoneme_path"] = f"{exp_dir}/2-name2text.txt"
@@ -481,6 +544,39 @@ if [[ "$upload_enabled" -eq 1 ]]; then
   (
     watch_and_upload "s1" "$s1_ckpt_dir" "*.ckpt" "$EXP_DIR/.upload/manifest_s1.txt"
   ) & uploader_pids+=($!)
+
+  # Small finetuneable weights (for later finetune/inference)
+  s2_weights_dir="$("$PYTHON_BIN" - <<'PY'
+import json, os
+p = os.environ.get("S2_CFG", "")
+if not p:
+    raise SystemExit(0)
+with open(p, "r", encoding="utf-8") as f:
+    d = json.load(f)
+print(d.get("save_weight_dir", ""))
+PY
+)"
+  s1_weights_dir="$("$PYTHON_BIN" - <<'PY'
+import os, yaml
+p = os.environ.get("S1_CFG", "")
+if not p:
+    raise SystemExit(0)
+with open(p, "r", encoding="utf-8") as f:
+    d = yaml.safe_load(f)
+print(((d or {}).get("train") or {}).get("half_weights_save_dir", ""))
+PY
+)"
+
+  if [[ -n "$s2_weights_dir" && -d "$s2_weights_dir" ]]; then
+    (
+      watch_and_upload "s2_weights" "$s2_weights_dir" "*.pth" "$EXP_DIR/.upload/manifest_s2_weights.txt"
+    ) & uploader_pids+=($!)
+  fi
+  if [[ -n "$s1_weights_dir" && -d "$s1_weights_dir" ]]; then
+    (
+      watch_and_upload "s1_weights" "$s1_weights_dir" "*.ckpt" "$EXP_DIR/.upload/manifest_s1_weights.txt"
+    ) & uploader_pids+=($!)
+  fi
 fi
 
 if [[ "$SKIP_SOVITS" -eq 0 ]]; then
@@ -496,7 +592,7 @@ fi
 
 if [[ "$SKIP_GPT" -eq 0 ]]; then
   echo "== Stage 1Bb: GPT train =="
-  export _CUDA_VISIBLE_DEVICES="$gpu_csv"
+  export _CUDA_VISIBLE_DEVICES="$train_gpu_csv"
   export hz="25hz"
   "$PYTHON_BIN" -s GPT_SoVITS/s1_train.py --config_file "$S1_CFG"
 else
