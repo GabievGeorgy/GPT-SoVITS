@@ -21,6 +21,30 @@ def load_audio(file, sr):
         file = clean_path(file)  # 防止小白拷路径头尾带了空格和"和回车
         if os.path.exists(file) is False:
             raise RuntimeError("You input a wrong audio path that does not exists, please fix it!")
+
+        # Fast-path: most training reads from `logs/<exp>/5-wav32k/`, where files are written by
+        # `scipy.io.wavfile.write(...)` but may keep the original extension (e.g. `.mp3`).
+        # Spawning an ffmpeg subprocess per sample is extremely slow; try direct WAV decoding first.
+        try:
+            from scipy.io import wavfile as _wavfile
+
+            native_sr, data = _wavfile.read(file)
+            if native_sr == sr:
+                if getattr(data, "ndim", 1) > 1:
+                    data = data.mean(axis=1)
+                if data.dtype == np.int16:
+                    return (data.astype(np.float32) / 32768.0).flatten()
+                if data.dtype == np.int32:
+                    return (data.astype(np.float32) / 2147483648.0).flatten()
+                if np.issubdtype(data.dtype, np.floating):
+                    data = data.astype(np.float32)
+                    max_abs = float(np.max(np.abs(data))) if data.size else 0.0
+                    if max_abs > 1.5:
+                        data = data / max_abs
+                    return data.flatten()
+                return data.astype(np.float32).flatten()
+        except Exception:
+            pass
         out, _ = (
             ffmpeg.input(file, threads=0)
             .output("-", format="f32le", acodec="pcm_f32le", ac=1, ar=sr)
