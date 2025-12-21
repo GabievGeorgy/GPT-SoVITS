@@ -281,6 +281,8 @@ merge_parts() {
   for f in "${tmp_files[@]}"; do
     [[ -f "$f" ]] || die "missing expected output: $f"
     cat "$f" >> "$EXP_DIR/$out"
+    # Ensure files are separated even if a part file has no trailing newline.
+    echo >> "$EXP_DIR/$out"
     rm -f "$f"
   done
 }
@@ -321,6 +323,8 @@ if [[ "$SKIP_PREPARE" -eq 0 ]]; then
       f="$EXP_DIR/6-name2semantic-$i.tsv"
       [[ -f "$f" ]] || die "missing expected output: $f"
       cat "$f"
+      # Ensure files are separated even if a part file has no trailing newline.
+      echo
       rm -f "$f"
     done
   } > "$EXP_DIR/6-name2semantic.tsv"
