@@ -9,6 +9,12 @@ import platform
 from pathlib import Path
 
 import torch
+try:
+    import pathlib
+
+    torch.serialization.add_safe_globals([pathlib.PosixPath, pathlib.WindowsPath])
+except Exception:
+    pass
 from AR.data.data_module import Text2SemanticDataModule
 from AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from AR.utils.io import load_yaml_config
