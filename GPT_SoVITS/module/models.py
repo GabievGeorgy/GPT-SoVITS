@@ -1245,6 +1245,7 @@ class SynthesizerTrnV3(nn.Module):
         use_sdp=True,
         semantic_frame_rate=None,
         freeze_quantizer=None,
+        freeze_text_encoder=None,
         version="v3",
         **kwargs,
     ):
@@ -1291,6 +1292,7 @@ class SynthesizerTrnV3(nn.Module):
 
         self.quantizer = ResidualVectorQuantizer(dimension=ssl_dim, n_q=1, bins=1024)
         self.freeze_quantizer = freeze_quantizer
+        self.freeze_text_encoder = freeze_text_encoder if freeze_text_encoder is not None else freeze_quantizer
         inter_channels2 = 512
         self.bridge = nn.Sequential(nn.Conv1d(inter_channels, inter_channels2, 1, stride=1), nn.LeakyReLU())
         self.wns1 = Encoder(inter_channels2, inter_channels2, inter_channels2, 5, 1, 8, gin_channels=gin_channels)
@@ -1302,6 +1304,7 @@ class SynthesizerTrnV3(nn.Module):
         if self.freeze_quantizer == True:
             set_no_grad(self.ssl_proj)
             set_no_grad(self.quantizer)
+        if self.freeze_text_encoder == True:
             set_no_grad(self.enc_p)
 
     def forward(
@@ -1310,15 +1313,20 @@ class SynthesizerTrnV3(nn.Module):
         with autocast(enabled=False):
             y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y.size(2)), 1).to(y.dtype)
             ge = self.ref_enc(y[:, :704] * y_mask, y_mask)
-            maybe_no_grad = torch.no_grad() if self.freeze_quantizer else contextlib.nullcontext()
-            with maybe_no_grad:
+
+            maybe_no_grad_quant = torch.no_grad() if self.freeze_quantizer else contextlib.nullcontext()
+            with maybe_no_grad_quant:
                 if self.freeze_quantizer:
-                    self.ssl_proj.eval()  #
+                    self.ssl_proj.eval()
                     self.quantizer.eval()
-                    self.enc_p.eval()
                 ssl = self.ssl_proj(ssl)
                 quantized, codes, commit_loss, quantized_list = self.quantizer(ssl, layers=[0])
                 quantized = F.interpolate(quantized, scale_factor=2, mode="nearest")  ##BCT
+
+            maybe_no_grad_text = torch.no_grad() if self.freeze_text_encoder else contextlib.nullcontext()
+            with maybe_no_grad_text:
+                if self.freeze_text_encoder:
+                    self.enc_p.eval()
                 x, m_p, logs_p, y_mask, y_, y_mask_ = self.enc_p(quantized, y_lengths, text, text_lengths, ge)
         fea = self.bridge(x)
         fea = F.interpolate(fea, scale_factor=(1.875 if self.version == "v3" else 2), mode="nearest")  ##BCT

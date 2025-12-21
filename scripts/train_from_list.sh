@@ -67,6 +67,9 @@ Optional (training):
   --sovits-batch <int>         (default: 11)
   --sovits-epochs <int>        (default: 30)
   --sovits-save-every <int>    (default: 2) save full checkpoints every N epochs
+  --sovits-freeze-quantizer <0|1> (default: from repo config; usually 1 for v3/v4)
+  --sovits-freeze-text-encoder <0|1> (default: same as freeze_quantizer)
+  --sovits-grad-ckpt <0|1>     (default: 0) enable gradient checkpointing for SoVITS (lower VRAM, slower)
   --lora-rank <int>            (default: 32) for v3/v4 SoVITS
   --gpt-batch <int>            (default: 13)
   --gpt-epochs <int>           (default: 30)
@@ -107,6 +110,9 @@ PRETRAINED_S1=""
 S2_BATCH=11
 S2_EPOCHS=30
 LORA_RANK=32
+S2_FREEZE_QUANTIZER=""
+S2_FREEZE_TEXT_ENCODER=""
+S2_GRAD_CKPT=0
 S1_BATCH=13
 S1_EPOCHS=30
 S2_SAVE_EVERY_EPOCH=2
@@ -140,6 +146,9 @@ while [[ $# -gt 0 ]]; do
     --sovits-batch) S2_BATCH="${2:-}"; shift 2;;
     --sovits-epochs) S2_EPOCHS="${2:-}"; shift 2;;
     --sovits-save-every) S2_SAVE_EVERY_EPOCH="${2:-}"; shift 2;;
+    --sovits-freeze-quantizer) S2_FREEZE_QUANTIZER="${2:-}"; shift 2;;
+    --sovits-freeze-text-encoder) S2_FREEZE_TEXT_ENCODER="${2:-}"; shift 2;;
+    --sovits-grad-ckpt) S2_GRAD_CKPT="${2:-}"; shift 2;;
     --lora-rank) LORA_RANK="${2:-}"; shift 2;;
     --gpt-batch) S1_BATCH="${2:-}"; shift 2;;
     --gpt-epochs) S1_EPOCHS="${2:-}"; shift 2;;
@@ -211,6 +220,13 @@ fi
 
 [[ "$S2_SAVE_EVERY_EPOCH" -ge 1 ]] || die "--sovits-save-every must be >= 1"
 [[ "$S1_SAVE_EVERY_EPOCH" -ge 1 ]] || die "--gpt-save-every must be >= 1"
+if [[ -n "$S2_FREEZE_QUANTIZER" ]]; then
+  [[ "$S2_FREEZE_QUANTIZER" == "0" || "$S2_FREEZE_QUANTIZER" == "1" ]] || die "--sovits-freeze-quantizer must be 0 or 1"
+fi
+if [[ -n "$S2_FREEZE_TEXT_ENCODER" ]]; then
+  [[ "$S2_FREEZE_TEXT_ENCODER" == "0" || "$S2_FREEZE_TEXT_ENCODER" == "1" ]] || die "--sovits-freeze-text-encoder must be 0 or 1"
+fi
+[[ "$S2_GRAD_CKPT" == "0" || "$S2_GRAD_CKPT" == "1" ]] || die "--sovits-grad-ckpt must be 0 or 1"
 
 echo "== Config =="
 echo "version=$VERSION exp=$EXP_NAME exp_dir=$EXP_DIR"
@@ -220,6 +236,13 @@ echo "ssl_dir=$SSL_DIR bert_dir=${BERT_DIR:-<repo default>}"
 echo "pretrained_s2G=$PRETRAINED_S2G pretrained_s2D=${PRETRAINED_S2D:-<none>}"
 echo "pretrained_s1=$PRETRAINED_S1"
 echo "sovits: batch=$S2_BATCH epochs=$S2_EPOCHS save_every_epoch=$S2_SAVE_EVERY_EPOCH save_infer_weights=$SAVE_INFER_WEIGHTS"
+if [[ -n "$S2_FREEZE_QUANTIZER" ]]; then
+  echo "sovits: freeze_quantizer=$S2_FREEZE_QUANTIZER (override)"
+fi
+if [[ -n "$S2_FREEZE_TEXT_ENCODER" ]]; then
+  echo "sovits: freeze_text_encoder=$S2_FREEZE_TEXT_ENCODER (override)"
+fi
+echo "sovits: grad_ckpt=$S2_GRAD_CKPT"
 if [[ "$VERSION" == "v3" || "$VERSION" == "v4" ]]; then
   echo "sovits: lora_rank=$LORA_RANK (v3/v4)"
 fi
@@ -349,6 +372,9 @@ export PRETRAINED_S1="$PRETRAINED_S1"
 export S2_BATCH="$S2_BATCH"
 export S2_EPOCHS="$S2_EPOCHS"
 export LORA_RANK="$LORA_RANK"
+export S2_FREEZE_QUANTIZER="$S2_FREEZE_QUANTIZER"
+export S2_FREEZE_TEXT_ENCODER="$S2_FREEZE_TEXT_ENCODER"
+export S2_GRAD_CKPT="$S2_GRAD_CKPT"
 export S1_BATCH="$S1_BATCH"
 export S1_EPOCHS="$S1_EPOCHS"
 export S2_SAVE_EVERY_EPOCH="$S2_SAVE_EVERY_EPOCH"
@@ -373,6 +399,9 @@ batch_size = int(os.environ["S2_BATCH"])
 epochs = int(os.environ["S2_EPOCHS"])
 save_every_epoch = int(os.environ["S2_SAVE_EVERY_EPOCH"])
 save_infer = os.environ.get("SAVE_INFER_WEIGHTS", "1") not in ("0", "False", "false")
+freeze_quantizer_env = os.environ.get("S2_FREEZE_QUANTIZER", "")
+freeze_text_encoder_env = os.environ.get("S2_FREEZE_TEXT_ENCODER", "")
+grad_ckpt = os.environ.get("S2_GRAD_CKPT", "0") in ("1", "True", "true")
 
 config_file = "GPT_SoVITS/configs/s2.json" if version not in {"v2Pro", "v2ProPlus"} else f"GPT_SoVITS/configs/s2{version}.json"
 with open(config_file, "r", encoding="utf-8") as f:
@@ -390,10 +419,15 @@ data["train"]["pretrained_s2D"] = pretrained_s2D
 data["train"]["if_save_latest"] = 0
 data["train"]["if_save_every_weights"] = bool(save_infer)
 data["train"]["save_every_epoch"] = save_every_epoch
+data["train"]["grad_ckpt"] = bool(grad_ckpt)
 data["train"]["gpu_numbers"] = gpu_numbers
 if version in {"v3", "v4"}:
     data["train"]["lora_rank"] = str(os.environ.get("LORA_RANK", "32"))
 data["model"]["version"] = version
+if freeze_quantizer_env != "":
+    data["model"]["freeze_quantizer"] = freeze_quantizer_env in ("1", "True", "true")
+if freeze_text_encoder_env != "":
+    data["model"]["freeze_text_encoder"] = freeze_text_encoder_env in ("1", "True", "true")
 data["data"]["exp_dir"] = exp_dir
 data["s2_ckpt_dir"] = exp_dir
 data["name"] = exp_name
