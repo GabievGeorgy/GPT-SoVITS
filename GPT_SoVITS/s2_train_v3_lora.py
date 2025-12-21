@@ -36,7 +36,7 @@ from module.models import (
     SynthesizerTrnV3 as SynthesizerTrn,
 )
 from peft import LoraConfig, get_peft_model
-from process_ckpt import savee
+from process_ckpt import load_sovits_new, savee
 
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = False
@@ -179,6 +179,7 @@ def run(rank, n_gpus, hps):
         epoch_str = 1
         global_step = 0
         net_g = get_model(hps)
+        pretrained_lora_rank = None
         if (
             hps.train.pretrained_s2G != ""
             and hps.train.pretrained_s2G != None
@@ -186,14 +187,32 @@ def run(rank, n_gpus, hps):
         ):
             if rank == 0:
                 logger.info("loaded pretrained %s" % hps.train.pretrained_s2G)
+            pretrained = load_sovits_new(hps.train.pretrained_s2G)
+            pretrained_weight = pretrained.get("weight", {})
+            pretrained_lora_rank = pretrained.get("lora_rank", None)
+            if pretrained_lora_rank is not None and str(pretrained_lora_rank) != str(lora_rank):
+                raise RuntimeError(
+                    f"pretrained_s2G lora_rank mismatch: weights={pretrained_lora_rank} config={lora_rank}"
+                )
+            if pretrained_lora_rank is not None and "enc_p.text_embedding.weight" not in pretrained_weight:
+                raise RuntimeError(
+                    "pretrained_s2G looks like LoRA-delta-only weights (missing base model tensors). "
+                    "Use a full finetuneable SoVITS weight (saved to a '*finetune*' folder) or a base s2G checkpoint."
+                )
             print(
                 "loaded pretrained %s" % hps.train.pretrained_s2G,
                 net_g.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
+                    pretrained_weight,
                     strict=False,
                 ),
             )
         net_g.cfm = get_peft_model(net_g.cfm, lora_config)
+        # If the weight file contains LoRA params, load again after wrapping so LoRA weights apply.
+        if pretrained_lora_rank is not None:
+            print(
+                "loaded pretrained LoRA %s" % hps.train.pretrained_s2G,
+                net_g.load_state_dict(pretrained_weight, strict=False),
+            )
         net_g = model2cuda(net_g, rank)
         optim_g = get_optim(net_g)
 
@@ -348,11 +367,11 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 ckpt = net_g.module.state_dict()
             else:
                 ckpt = net_g.state_dict()
+            save_dir = getattr(hps, "save_weight_dir", "")
+            save_full = isinstance(save_dir, str) and "finetune" in save_dir
             sim_ckpt = od()
             for key in ckpt:
-                # if "cfm"not in key:
-                #     print(key)
-                if key not in no_grad_names:
+                if save_full or (key not in no_grad_names):
                     sim_ckpt[key] = ckpt[key].half().cpu()
             logger.info(
                 "saving ckpt %s_e%s:%s"

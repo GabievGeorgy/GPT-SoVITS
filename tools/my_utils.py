@@ -101,11 +101,16 @@ def check_details(path_list=None, is_train=False, is_dataset_processing=False):
             line = f.readline().strip("\n").split("\n")
         wav_name, _, __, ___ = line[0].split("|")
         wav_name = clean_path(wav_name)
-        if audio_path != "" and audio_path != None:
-            wav_name = os.path.basename(wav_name)
-            wav_path = "%s/%s" % (audio_path, wav_name)
+        list_dir = os.path.dirname(os.path.abspath(list_path))
+        if audio_path not in ("", None):
+            if os.path.isabs(wav_name):
+                wav_path = wav_name
+            else:
+                cand1 = os.path.join(audio_path, wav_name)
+                cand2 = os.path.join(audio_path, os.path.basename(wav_name))
+                wav_path = cand1 if os.path.exists(cand1) else cand2
         else:
-            wav_path = wav_name
+            wav_path = wav_name if os.path.isabs(wav_name) else os.path.join(list_dir, wav_name)
         if os.path.exists(wav_path):
             ...
         else:

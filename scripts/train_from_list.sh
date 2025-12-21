@@ -399,12 +399,9 @@ data["s2_ckpt_dir"] = exp_dir
 data["name"] = exp_name
 data["version"] = version
 
-# Save small weights to a "weights" folder. For v2ProPlus, always use the finetune folder
-# to ensure the saved weights are loadable for later finetuning (torch.save format).
-if version == "v2ProPlus":
-    weight_root = SoVITS_weight_finetune_version2root.get(version, SoVITS_weight_version2root.get(version, "SoVITS_weights"))
-else:
-    weight_root = SoVITS_weight_version2root.get(version, "SoVITS_weights")
+# Save finetuneable weights to a dedicated folder when available.
+# For v4 this also enables saving full (not delta-only) weights via the trainer logic.
+weight_root = SoVITS_weight_finetune_version2root.get(version, SoVITS_weight_version2root.get(version, "SoVITS_weights"))
 
 os.makedirs(weight_root, exist_ok=True)
 data["save_weight_dir"] = weight_root
@@ -452,10 +449,7 @@ data["train"]["if_save_latest"] = False
 data["train"]["if_dpo"] = False
 data["train"]["exp_name"] = exp_name
 
-if version == "v2ProPlus":
-    gpt_root = GPT_weight_finetune_version2root.get(version, GPT_weight_version2root.get(version, "GPT_weights"))
-else:
-    gpt_root = GPT_weight_version2root.get(version, "GPT_weights")
+gpt_root = GPT_weight_finetune_version2root.get(version, GPT_weight_version2root.get(version, "GPT_weights"))
 
 os.makedirs(gpt_root, exist_ok=True)
 data["train"]["half_weights_save_dir"] = gpt_root
