@@ -99,6 +99,12 @@ def get_hash_from_file(sovits_path):
 
 
 def get_sovits_version_from_path_fast(sovits_path):
+    force = os.environ.get("SOVITS_FORCE_MODEL_VERSION", "").strip()
+    if force in {"v1", "v2", "v3", "v4", "v2Pro", "v2ProPlus"}:
+        with open(sovits_path, "rb") as f:
+            if f.read(2) == b"PK":
+                symbol = force if force in {"v1", "v2"} else "v2"
+                return symbol, force, False
     ###1-if it is pretrained sovits models, by hash
     hash = get_hash_from_file(sovits_path)
     if hash in hash_pretrained_dict:
